@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Song Manager | Buku Lagu</title>
+  <!-- Frontend ini dimuat dari hosting/static server terpisah dari Apps Script. -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="page-shell">
+    <header class="page-header is-collapsed">
+      <div>
+        <p class="eyebrow">BUKU LAGU · ADMIN</p>
+        <h1>Kelola lagu</h1>
+        <p class="intro">Simpan detail lagu, konten lirik dan chord berformat HTML, serta partitur per instrumen.</p>
+      </div>
+      <div class="page-header-actions">
+        <span class="status-pill"><span class="status-dot"></span>Frontend terpisah · API Apps Script</span>
+        <button id="toggle-page-header" class="header-toggle-button" type="button" aria-expanded="false" aria-label="Buka header"><span aria-hidden="true">v</span><span class="header-toggle-label">Buka header</span></button>
+      </div>
+    </header>
+
+    <section class="card saved-songs-card" aria-labelledby="saved-songs-heading">
+      <div class="section-heading">
+        <div><p class="section-kicker">DAFTAR SPREADSHEET</p><h2 id="saved-songs-heading">Lagu tersimpan</h2></div>
+        <button class="button button-secondary" id="refresh-songs" type="button">Perbarui daftar</button>
+      </div>
+      <label class="field song-search-field"><span>Cari lagu</span><input id="manager-song-search" type="search" placeholder="Cari judul, kategori, atau nomor"></label>
+      <div id="manager-update-progress" class="manager-update-progress" hidden aria-live="polite">
+        <div id="manager-progress-track" class="manager-progress-track" role="progressbar" aria-label="Pembaruan daftar lagu" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Menunggu data dari spreadsheet"><span class="manager-progress-fill"></span></div>
+        <span id="manager-progress-label" class="manager-progress-label"></span>
+      </div>
+      <p id="manager-list-status" class="manager-list-status" role="status" aria-live="polite">Memuat daftar lagu…</p>
+      <div id="manager-song-list" class="manager-song-list"></div>
+    </section>
+
+    <form id="song-form">
+      <section class="card" aria-labelledby="song-detail-heading">
+        <div class="section-heading">
+          <div><p class="section-kicker">01 · INFORMASI</p><h2 id="song-detail-heading">Detail lagu baru</h2></div>
+        </div>
+        <div class="field-grid">
+          <label class="field"><span>Kategori <b>*</b></span>
+            <select id="category" required>
+              <option value="">Pilih kategori</option>
+              <option value="PS">Psallo (PS)</option><option value="NR">Nyanyian Rohani (NR)</option>
+              <option value="SP">Tambahan (SP)</option><option value="ZR">Zangkoor (ZR)</option>
+              <option value="KMR">Kaum Muda (KMR)</option><option value="SM">Sekolah Minggu (SM)</option>
+              <option value="OTH">Other (OTH)</option>
+            </select>
+          </label>
+          <label class="field"><span>Nomor <b>*</b></span><input id="number" type="text" inputmode="numeric" placeholder="Contoh: 1" required></label>
+          <label class="field field-wide"><span>Judul lagu <b>*</b></span><input id="title" type="text" placeholder="Contoh: Kasih dari Sorga" required></label>
+          <label class="field"><span>Nada dasar</span><input id="key" type="text" placeholder="Contoh: C, D♭, Am"></label>
+          <label class="field"><span>Jenis musik</span><input id="genre" type="text" placeholder="Contoh: Hymne"></label>
+          <label class="field"><span>Tempo (BPM)</span><input id="tempo" type="number" min="1" placeholder="Contoh: 96"></label>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="lyrics-heading">
+        <div class="section-heading">
+          <div><p class="section-kicker">02 · KONTEN</p><h2 id="lyrics-heading">Lirik dan chord</h2></div>
+          <span class="section-note">Satu input dengan penanda bagian otomatis.</span>
+        </div>
+        <label class="field editor-field"><span>Lirik dan chord <b>*</b></span>
+          <span class="editor-hint" id="song-input-hint">Ketik semua isi lagu di sini. Tulis nama bagian pada baris tersendiri, misalnya [Intro], [Bait 1], [Reff], [Verse 2], [Chorus], [Bridge], [Interlude], atau [Coda]. Nama bagian akan disorot otomatis.</span>
+          <div class="song-input-wrap">
+            <pre class="highlight-layer" id="highlight-layer" aria-hidden="true"></pre>
+            <textarea id="song-content-input" class="song-text-input" spellcheck="false" wrap="off" aria-label="Lirik dan chord" aria-describedby="song-input-hint"></textarea>
+          </div>
+        </label>
+        <p class="format-tip">Penanda bagian bisa memakai Bahasa Indonesia atau Inggris. Baris chord dan lirik tidak dibungkus otomatis; geser mendatar di dalam editor atau bagian lagu untuk melihat baris panjang tanpa mengubah kesejajaran.</p>
+      </section>
+
+      <section class="card" aria-labelledby="scores-heading">
+        <div class="section-heading">
+          <div><p class="section-kicker">03 · PARTITUR</p><h2 id="scores-heading">Gambar berdasarkan instrumen</h2></div>
+          <button class="button button-secondary" id="add-instrument" type="button"><span aria-hidden="true">＋</span> Tambah instrumen</button>
+        </div>
+        <p class="section-note upload-note">Opsional. Jika gambar dipilih, nama file dibuat dari kategori, nomor, judul, dan instrumen.</p>
+        <div id="instrument-list" class="instrument-list"></div>
+      </section>
+
+      <div class="form-footer">
+        <div id="form-status" class="form-status" role="status" aria-live="polite">Semua field bertanda * wajib diisi.</div>
+        <div class="form-actions"><button class="button button-secondary" id="cancel-edit-button" type="button" hidden>Batal edit</button><button class="button button-primary" id="submit-button" type="submit"><span>Simpan lagu</span><span aria-hidden="true">→</span></button></div>
+      </div>
+    </form>
+  </main>
+  <template id="instrument-template">
+    <div class="instrument-row">
+      <label class="field instrument-name-field"><span>Nama instrumen</span><input class="instrument-name" type="text" placeholder="Contoh: general, violin"></label>
+      <label class="field file-field"><span>Gambar partitur</span><input class="instrument-files" type="file" accept="image/*" multiple><span class="file-help">Bisa memilih lebih dari satu gambar.</span></label>
+      <button class="icon-button remove-instrument" type="button" aria-label="Hapus instrumen" title="Hapus instrumen">×</button>
+      <div class="file-list" aria-live="polite"></div>
+    </div>
+  </template>
+  <dialog id="manager-preview-dialog" class="manager-preview-dialog" aria-labelledby="manager-preview-title">
+    <div class="manager-preview-frame">
+      <header class="manager-preview-header">
+        <div class="manager-preview-heading"><p id="manager-preview-category" class="manager-preview-category"></p><h2 id="manager-preview-title"></h2><p id="manager-preview-meta" class="manager-preview-meta"></p></div>
+        <button id="close-manager-preview" class="manager-preview-close" type="button" aria-label="Tutup preview">×</button>
+      </header>
+      <section id="manager-preview-scores" class="manager-preview-scores" aria-label="Gambar partitur" hidden>
+        <div id="manager-preview-instruments" class="manager-preview-instruments" aria-label="Pilih instrumen partitur"></div>
+        <div id="manager-score-carousel" class="manager-score-carousel" hidden>
+          <button id="manager-score-previous" type="button" aria-label="Gambar sebelumnya">‹</button>
+          <span id="manager-score-position" aria-live="polite">1 / 1</span>
+          <button id="manager-score-next" type="button" aria-label="Gambar berikutnya">›</button>
+        </div>
+        <div id="manager-preview-pages" class="manager-preview-pages" hidden></div>
+      </section>
+      <article id="manager-preview-content" class="manager-preview-content" tabindex="0" aria-label="Lirik dan chord lagu"></article>
+    </div>
+  </dialog>
+  <dialog id="manager-score-image-dialog" class="manager-score-image-dialog" aria-label="Tampilan penuh partitur">
+    <button id="close-manager-score-image" class="manager-score-image-close" type="button" aria-label="Tutup gambar">×</button>
+    <img id="manager-score-image-full" alt="Partitur diperbesar">
+  </dialog>
+  <!-- Apps Script hanya digunakan sebagai API penyimpanan. -->
+  <script src="script.js" defer></script>
+</body>
+</html>
