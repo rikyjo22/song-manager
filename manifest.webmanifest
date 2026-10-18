@@ -1,0 +1,23 @@
+{
+  "name": "Song Manager",
+  "short_name": "Song Manager",
+  "description": "Aplikasi ini dibuat untuk membantu pemain musik gereja.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone"],
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "./icons/lagu-rohani-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "./icons/lagu-rohani-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

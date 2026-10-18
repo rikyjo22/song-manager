@@ -2,7 +2,7 @@
   'use strict';
 
   // Tempel URL Web App deployment Apps Script di antara tanda petik.
-  const API_URL = 'https://script.google.com/macros/s/AKfycbwCKxOurDR32eAglkvy0qmIzqG5_1q-HUVxmT0UbYA7QZqiO0_PXYEMp4JKS0PDaolL2Q/exec';
+  const API_URL = 'https://script.google.com/macros/s/AKfycbySj5dccqhqMXn16w53BM0fM1XzGAd_8x0G8YR-EOO8tlRHQ_mc9oszy750yHamF_FroQ/exec';
   const MANAGER_CACHE_KEY = 'song-manager:saved-songs:v1';
   const CATEGORY_LABELS = { PS: 'Psallo', NR: 'Nyanyian Rohani', SP: 'Tambahan', ZR: 'Zangkoor', KMR: 'Kaum Muda', SM: 'Sekolah Minggu', OTH: 'Other' };
   const form = document.getElementById('song-form');
@@ -14,6 +14,7 @@
   const highlightLayer = document.getElementById('highlight-layer');
   const managerSongList = document.getElementById('manager-song-list');
   const managerListStatus = document.getElementById('manager-list-status');
+  const managerLastUpdated = document.getElementById('manager-last-updated');
   const managerSearch = document.getElementById('manager-song-search');
   const managerUpdateProgress = document.getElementById('manager-update-progress');
   const managerProgressTrack = document.getElementById('manager-progress-track');
@@ -31,10 +32,13 @@
   const managerScoreImageFull = document.getElementById('manager-score-image-full');
   let previewScoreSong = null;
   let previewScoreInstrument = '';
+  let previewZoom = 1;
+  let previewPinchStart = null;
   let savedSongs = [];
   let editingSongId = '';
   let pendingImages = {};
   let listCallbackCounter = 0;
+  let isLoadingSavedSongs = false;
   const placeholderExample = '[Intro]\nG   D   Em\n(musik)\n\n[Bait 1]\nG       C\nKasih-Mu nyata\n\n[Reff]\nC   D   G\nKu memuji';
 
   const knownSectionPattern = /^(?:(?:\d+[.)]?\s*)?)(intro|opening|bait|verse|stanza|reff|refrain|chorus|pre[ -]?(?:reff|chorus)|post[ -]?(?:reff|chorus)|bridge|intermezzo|itermezzo|interlude|instrumental|music|musik|solo|coda|outro|ending|tag|vamp|reprise)(?:\s+(?:ke[- ]?)?\d+)?$/i;
@@ -44,6 +48,12 @@
     status.className = `form-status${kind ? ` ${kind}` : ''}`;
     status.setAttribute('role', kind === 'error' ? 'alert' : 'status');
     status.setAttribute('aria-live', kind === 'error' ? 'assertive' : 'polite');
+  }
+
+  function formatTempo(value) {
+    const tempo = String(value == null ? '' : value).trim().replace(/\s*BPM\s*$/i, '').trim();
+    if (!tempo) return '';
+    return /^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)$/.test(tempo) ? `${tempo} BPM` : tempo;
   }
 
   function escapeHtml(value) {
@@ -219,7 +229,9 @@
       title: document.getElementById('title').value.trim(),
       key: document.getElementById('key').value.trim(),
       genre: document.getElementById('genre').value.trim(),
-      tempo: document.getElementById('tempo').value,
+      songCreator: document.getElementById('song-creator').value.trim(),
+      dateCreate: document.getElementById('date-create').value.trim(),
+      tempo: document.getElementById('tempo').value.trim(),
       contentHtml: getContentHtml(),
       id: editingSongId,
       action: editingSongId ? 'update' : 'create',
@@ -229,8 +241,10 @@
   }
 
   function loadSavedSongs() {
-    managerListStatus.textContent = 'Memuat daftar lagu dari spreadsheet…';
-    setUpdateProgress('loading', 'Mengambil data dari spreadsheet…');
+    if (isLoadingSavedSongs) return;
+    isLoadingSavedSongs = true;
+    managerListStatus.textContent = 'Memuat daftar lagu dari database…';
+    setUpdateProgress('loading', 'Mengambil data dari database…');
     const refreshButton = document.getElementById('refresh-songs');
     refreshButton.disabled = true;
     const callbackName = `cb_${Date.now()}_${++listCallbackCounter}`;
@@ -240,6 +254,7 @@
     function finish(error, result) {
       if (settled) return;
       settled = true;
+      isLoadingSavedSongs = false;
       window.clearTimeout(timeout);
       refreshButton.disabled = false;
       delete window.SongBookCallbacks[callbackName];
@@ -254,9 +269,10 @@
       const updatedAt = new Date().toISOString();
       try {
         localStorage.setItem(MANAGER_CACHE_KEY, JSON.stringify({ updatedAt, songs: savedSongs }));
-        managerListStatus.textContent = `${savedSongs.length} lagu ditemukan · diperbarui ${new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(updatedAt))}.`;
+        setLastUpdated(updatedAt);
+        managerListStatus.textContent = `${savedSongs.length} lagu ditemukan.`;
       } catch (storageError) {
-        managerListStatus.textContent = `${savedSongs.length} lagu ditemukan di spreadsheet.`;
+        managerListStatus.textContent = `${savedSongs.length} lagu ditemukan di database.`;
       }
       renderSavedSongs();
       setUpdateProgress('complete', `Selesai diperbarui · ${savedSongs.length} lagu.`);
@@ -280,16 +296,26 @@
     else managerProgressTrack.removeAttribute('aria-valuenow');
   }
 
+  function setLastUpdated(value) {
+    const updated = value ? new Date(value) : null;
+    const label = updated && !Number.isNaN(updated.getTime())
+      ? new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short' }).format(updated)
+      : 'Waktu pembaruan belum tersedia';
+    managerLastUpdated.textContent = `Terakhir diperbarui: ${label}`;
+    managerLastUpdated.hidden = false;
+  }
+
   function loadCachedSongs() {
     try {
       const cached = JSON.parse(localStorage.getItem(MANAGER_CACHE_KEY) || 'null');
       if (!cached || !Array.isArray(cached.songs)) return false;
       savedSongs = cached.songs;
       const updated = cached.updatedAt ? new Date(cached.updatedAt) : null;
+      setLastUpdated(updated && !Number.isNaN(updated.getTime()) ? updated : null);
       const updatedLabel = updated && !Number.isNaN(updated.getTime())
         ? ` · cache ${new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short' }).format(updated)}`
         : '';
-      managerListStatus.textContent = `${savedSongs.length} lagu di cache lokal${updatedLabel}. Tekan “Perbarui daftar” untuk mengambil perubahan spreadsheet.`;
+      managerListStatus.textContent = `${savedSongs.length} lagu di cache lokal${updatedLabel}. Tekan “Perbarui daftar” untuk mengambil perubahan database.`;
       renderSavedSongs();
       return true;
     } catch (error) {
@@ -299,12 +325,12 @@
 
   function renderSavedSongs() {
     const query = managerSearch.value.trim().toLocaleLowerCase('id');
-    const visible = savedSongs.filter((song) => `${song.category} ${song.number} ${song.title}`.toLocaleLowerCase('id').includes(query));
+    const visible = savedSongs.filter((song) => `${song.category} ${song.number} ${song.title} ${song.songCreator || ''} ${song.dateCreate || ''}`.toLocaleLowerCase('id').includes(query));
     managerSongList.replaceChildren();
     if (!visible.length) {
       const empty = document.createElement('div');
       empty.className = 'manager-empty';
-      empty.textContent = savedSongs.length ? 'Tidak ada lagu yang cocok.' : 'Belum ada cache lagu. Tekan “Perbarui daftar” untuk mengambilnya dari spreadsheet.';
+      empty.textContent = savedSongs.length ? 'Tidak ada lagu yang cocok.' : 'Belum ada cache lagu. Tekan “Perbarui daftar” untuk mengambilnya dari database.';
       managerSongList.append(empty);
       return;
     }
@@ -324,7 +350,7 @@
       title.textContent = `${song.category || ''} ${song.number || ''} · ${song.title || ''}`;
       const meta = document.createElement('p');
       meta.className = 'manager-song-meta';
-      meta.textContent = [song.key, song.genre, song.tempo ? `${song.tempo} BPM` : ''].filter(Boolean).join(' · ');
+      meta.textContent = [song.key, song.genre, song.songCreator, song.dateCreate, formatTempo(song.tempo)].filter(Boolean).join(' · ');
       info.append(title, meta);
       const actions = document.createElement('div');
       actions.className = 'manager-song-actions';
@@ -379,12 +405,19 @@
 
   function openSavedSongPreview(song) {
     previewScoreSong = song;
+    previewZoom = 1;
     const categoryCode = String(song.category || '').toUpperCase();
     document.getElementById('manager-preview-category').textContent = categoryCode
       ? `${categoryCode} · ${CATEGORY_LABELS[categoryCode] || categoryCode}`
       : '';
     document.getElementById('manager-preview-title').textContent = `${song.number ? `${song.number}. ` : ''}${song.title || ''}`;
-    document.getElementById('manager-preview-meta').textContent = [song.key ? `Nada dasar: ${song.key}` : '', song.genre || '', song.tempo ? `Tempo: ${String(song.tempo).replace(/\s*BPM\s*$/i, '')} BPM` : ''].filter(Boolean).join(' | ');
+    document.getElementById('manager-preview-meta').textContent = [song.key ? `Nada dasar: ${song.key}` : '', song.genre || '', song.tempo ? `Tempo: ${formatTempo(song.tempo)}` : ''].filter(Boolean).join(' | ');
+    const credits = [];
+    if (song.songCreator) credits.push(`Pencipta: ${song.songCreator}`);
+    if (song.dateCreate) credits.push(`Tahun: ${song.dateCreate}`);
+    const creditsElement = document.getElementById('manager-preview-credits');
+    creditsElement.textContent = credits.join(' · ');
+    creditsElement.hidden = credits.length === 0;
     previewContent.replaceChildren();
     const fragment = safePreviewFragment(song.contentHtml);
     if (fragment.childNodes.length) previewContent.append(fragment);
@@ -394,11 +427,71 @@
       empty.textContent = 'Lirik dan chord belum tersedia untuk lagu ini.';
       previewContent.append(empty);
     }
+    const songContent = previewContent.querySelector('.song-content');
+    if (songContent) songContent.style.zoom = String(previewZoom);
     previewContent.scrollTop = 0;
     renderPreviewScoreButtons(song.images);
     previewDialog.showModal();
+    scheduleManagerPreviewFit();
     document.getElementById('close-manager-preview').focus();
   }
+
+  function fitManagerPreview() {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    previewContent.querySelectorAll('.song-section-body, .song-content pre').forEach((body) => {
+      body.style.fontSize = '';
+      const width = body.parentElement.clientWidth;
+      if (!width || !context) return;
+      const style = getComputedStyle(body);
+      const baseSize = parseFloat(style.fontSize) || 14;
+      const lines = (body.innerText || body.textContent).split(/\r?\n/);
+      context.font = `${style.fontWeight} ${baseSize}px ${style.fontFamily}`;
+      const longestWidth = Math.max(0, ...lines.map((line) => context.measureText(line.replace(/\t/g, '    ')).width));
+      if (longestWidth > width) body.style.fontSize = `${baseSize * width / longestWidth * 0.97}px`;
+    });
+  }
+
+  let managerPreviewFitFrame = 0;
+  function scheduleManagerPreviewFit() {
+    cancelAnimationFrame(managerPreviewFitFrame);
+    managerPreviewFitFrame = requestAnimationFrame(() => {
+      managerPreviewFitFrame = requestAnimationFrame(fitManagerPreview);
+    });
+  }
+
+  const managerPreviewFitObserver = new ResizeObserver(scheduleManagerPreviewFit);
+  managerPreviewFitObserver.observe(previewContent);
+  window.addEventListener('resize', scheduleManagerPreviewFit, { passive: true });
+
+  function previewTouchDistance(touches) {
+    return Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+  }
+
+  previewContent.addEventListener('touchstart', (event) => {
+    if (event.touches.length === 2) previewPinchStart = { distance: previewTouchDistance(event.touches), zoom: previewZoom };
+  }, { passive: true });
+
+  previewContent.addEventListener('touchmove', (event) => {
+    if (!previewPinchStart || event.touches.length !== 2) return;
+    event.preventDefault();
+    const nextZoom = Math.max(0.7, Math.min(2.5, previewPinchStart.zoom * previewTouchDistance(event.touches) / previewPinchStart.distance));
+    if (!Number.isFinite(nextZoom)) return;
+    const rect = previewContent.getBoundingClientRect();
+    const centerX = (event.touches[0].clientX + event.touches[1].clientX) / 2 - rect.left;
+    const centerY = (event.touches[0].clientY + event.touches[1].clientY) / 2 - rect.top;
+    const ratio = nextZoom / previewZoom;
+    previewContent.scrollLeft = (previewContent.scrollLeft + centerX) * ratio - centerX;
+    previewContent.scrollTop = (previewContent.scrollTop + centerY) * ratio - centerY;
+    previewZoom = nextZoom;
+    const songContent = previewContent.querySelector('.song-content');
+    if (songContent) songContent.style.zoom = String(previewZoom);
+  }, { passive: false });
+
+  previewContent.addEventListener('touchend', (event) => {
+    if (event.touches.length < 2) previewPinchStart = null;
+  }, { passive: true });
+  previewContent.addEventListener('touchcancel', () => { previewPinchStart = null; }, { passive: true });
 
   function renderPreviewScoreButtons(images) {
     previewInstruments.replaceChildren();
@@ -506,7 +599,9 @@
     document.getElementById('title').value = song.title || '';
     document.getElementById('key').value = song.key || '';
     document.getElementById('genre').value = song.genre || '';
-    document.getElementById('tempo').value = String(song.tempo || '').replace(/\s*BPM\s*$/i, '');
+    document.getElementById('song-creator').value = song.songCreator || '';
+    document.getElementById('date-create').value = song.dateCreate || '';
+    document.getElementById('tempo').value = String(song.tempo || '');
     songInput.value = htmlToInput(song.contentHtml);
     instrumentList.replaceChildren();
     pendingImages = song.images && typeof song.images === 'object' ? song.images : {};
@@ -572,7 +667,7 @@
       return;
     }
     if (button.dataset.action !== 'delete') return;
-    if (!window.confirm(`Hapus lagu ${song.category} ${song.number} · ${song.title} dari spreadsheet? File partitur terkait juga akan dipindahkan ke Sampah Google Drive.`)) return;
+    if (!window.confirm(`Hapus lagu ${song.category} ${song.number} · ${song.title} dari database? File partitur terkait juga akan dipindahkan ke Sampah Google Drive.`)) return;
     button.disabled = true;
     managerListStatus.textContent = `Menghapus ${song.title}…`;
     try {
@@ -607,7 +702,7 @@
   managerSearch.addEventListener('input', renderSavedSongs);
   cancelEditButton.addEventListener('click', resetEditor);
   if (!loadCachedSongs()) {
-    managerListStatus.textContent = 'Tekan “Perbarui daftar” untuk mengambil lagu dari spreadsheet.';
+    managerListStatus.textContent = 'Tekan “Perbarui daftar” untuk mengambil lagu dari database.';
     renderSavedSongs();
   }
   window.scrollTo(0, 0);

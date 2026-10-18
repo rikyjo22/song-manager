@@ -3,32 +3,43 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Song Manager | Buku Lagu</title>
+  <meta name="theme-color" content="#ffffff">
+  <meta name="application-name" content="Song Manager">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Song Manager">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <title>Song Manager</title>
   <!-- Frontend ini dimuat dari hosting/static server terpisah dari Apps Script. -->
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main class="page-shell">
-    <header class="page-header is-collapsed">
+    <header class="page-header">
       <div>
         <p class="eyebrow">BUKU LAGU · ADMIN</p>
         <h1>Kelola lagu</h1>
-        <p class="intro">Simpan detail lagu, konten lirik dan chord berformat HTML, serta partitur per instrumen.</p>
+        <p class="intro">Aplikasi ini dibuat untuk membantu pemain musik gereja</p>
       </div>
       <div class="page-header-actions">
-        <span class="status-pill"><span class="status-dot"></span>Frontend terpisah · API Apps Script</span>
-        <button id="toggle-page-header" class="header-toggle-button" type="button" aria-expanded="false" aria-label="Buka header"><span aria-hidden="true">v</span><span class="header-toggle-label">Buka header</span></button>
+        <button id="toggle-page-header" class="header-toggle-button" type="button" aria-expanded="true" aria-label="Ciutkan header"><span aria-hidden="true">^</span><span class="header-toggle-label">Ciutkan header</span></button>
       </div>
     </header>
+    <div class="app-credit"><img src="./icons/lagu-rohani-192.png" alt=""><span>Created by Riky Jo @2026</span></div>
 
     <section class="card saved-songs-card" aria-labelledby="saved-songs-heading">
       <div class="section-heading">
-        <div><p class="section-kicker">DAFTAR SPREADSHEET</p><h2 id="saved-songs-heading">Lagu tersimpan</h2></div>
-        <button class="button button-secondary" id="refresh-songs" type="button">Perbarui daftar</button>
+        <div class="saved-songs-heading-group">
+          <p class="section-kicker">DATABASE LAGU</p>
+          <div class="saved-songs-title-row"><h2 id="saved-songs-heading">Lagu tersimpan</h2><button class="button button-secondary" id="refresh-songs" type="button">Perbarui daftar</button></div>
+          <p id="manager-last-updated" class="manager-last-updated" hidden></p>
+        </div>
       </div>
       <label class="field song-search-field"><span>Cari lagu</span><input id="manager-song-search" type="search" placeholder="Cari judul, kategori, atau nomor"></label>
       <div id="manager-update-progress" class="manager-update-progress" hidden aria-live="polite">
-        <div id="manager-progress-track" class="manager-progress-track" role="progressbar" aria-label="Pembaruan daftar lagu" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Menunggu data dari spreadsheet"><span class="manager-progress-fill"></span></div>
+        <div id="manager-progress-track" class="manager-progress-track" role="progressbar" aria-label="Pembaruan daftar lagu" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Menunggu data dari database"><span class="manager-progress-fill"></span></div>
         <span id="manager-progress-label" class="manager-progress-label"></span>
       </div>
       <p id="manager-list-status" class="manager-list-status" role="status" aria-live="polite">Memuat daftar lagu…</p>
@@ -54,7 +65,9 @@
           <label class="field field-wide"><span>Judul lagu <b>*</b></span><input id="title" type="text" placeholder="Contoh: Kasih dari Sorga" required></label>
           <label class="field"><span>Nada dasar</span><input id="key" type="text" placeholder="Contoh: C, D♭, Am"></label>
           <label class="field"><span>Jenis musik</span><input id="genre" type="text" placeholder="Contoh: Hymne"></label>
-          <label class="field"><span>Tempo (BPM)</span><input id="tempo" type="number" min="1" placeholder="Contoh: 96"></label>
+          <label class="field"><span>Song-creator</span><input id="song-creator" type="text" placeholder="Nama pencipta lagu"></label>
+          <label class="field"><span>Date Create</span><input id="date-create" type="text" inputmode="numeric" placeholder="Tahun, contoh: 1984"></label>
+          <label class="field"><span>Tempo</span><input id="tempo" type="text" inputmode="decimal" placeholder="Contoh: 96 atau Allegro"></label>
         </div>
       </section>
 
@@ -99,7 +112,7 @@
   <dialog id="manager-preview-dialog" class="manager-preview-dialog" aria-labelledby="manager-preview-title">
     <div class="manager-preview-frame">
       <header class="manager-preview-header">
-        <div class="manager-preview-heading"><p id="manager-preview-category" class="manager-preview-category"></p><h2 id="manager-preview-title"></h2><p id="manager-preview-meta" class="manager-preview-meta"></p></div>
+        <div class="manager-preview-heading"><p id="manager-preview-category" class="manager-preview-category"></p><h2 id="manager-preview-title"></h2><p id="manager-preview-meta" class="manager-preview-meta"></p><p id="manager-preview-credits" class="manager-preview-credits" hidden></p></div>
         <button id="close-manager-preview" class="manager-preview-close" type="button" aria-label="Tutup preview">×</button>
       </header>
       <section id="manager-preview-scores" class="manager-preview-scores" aria-label="Gambar partitur" hidden>
