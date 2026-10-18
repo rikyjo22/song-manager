@@ -2,7 +2,7 @@
   'use strict';
 
   // Tempel URL Web App deployment Apps Script di antara tanda petik.
-  const API_URL = 'https://script.google.com/macros/s/AKfycbw4MJSreur798HEPHFqY8jgUVLYC1b_Fs_UsGwAq0uXZqBboszAyhPKZNCTQqaWm4hZNQ/exec';
+  const API_URL = 'https://script.google.com/macros/s/AKfycbzHIplbDmgbrnMoZXBQNKLVmNQifdNhbUi7j66LTAHSGkRBX3WaBPo4P7y63KP2goxkjw/exec';
   const MANAGER_CACHE_KEY = 'song-manager:saved-songs:v1';
   const MANAGER_DELETED_IDS_KEY = 'song-manager:deleted-song-ids:v1';
   const CATEGORY_LABELS = { PS: 'Psallo', NR: 'Nyanyian Rohani', SP: 'Tambahan', ZR: 'Zangkoor', KMR: 'Kaum Muda', SM: 'Sekolah Minggu', OTH: 'Other' };
@@ -55,7 +55,9 @@
   let editingSongId = '';
   let pendingImages = {};
   let listCallbackCounter = 0;
+  let instrumentCallbackCounter = 0;
   let isLoadingSavedSongs = false;
+  let availableInstrumentNames = [];
   const placeholderExample = '[Intro]\nG   D   Em\n(musik)\n\n[Bait 1]\nG       C\nKasih-Mu nyata\n\n[Reff]\nC   D   G\nKu memuji';
 
   const knownSectionPattern = /^(?:(?:\d+[.)]?\s*)?)(intro|opening|bait|verse|stanza|reff|refrain|chorus|pre[ -]?(?:reff|chorus)|post[ -]?(?:reff|chorus)|bridge|intermezzo|itermezzo|interlude|instrumental|music|musik|solo|coda|outro|ending|tag|vamp|reprise)(?:\s+(?:ke[- ]?)?\d+)?$/i;
@@ -113,11 +115,7 @@
     const row = template.content.firstElementChild.cloneNode(true);
     const nameSelect = row.querySelector('.instrument-name-select');
     const nameInput = row.querySelector('.instrument-name');
-    const presetExists = [...nameSelect.options].some((option) => option.value === name && option.value !== 'Others');
-    nameSelect.value = presetExists ? name : 'Others';
-    nameInput.value = presetExists ? '' : name;
-    nameInput.hidden = presetExists;
-    nameInput.required = !presetExists;
+    populateInstrumentSelect(nameSelect, name, nameInput);
     row.dataset.originalInstrument = existingFiles && existingFiles.length ? name : '';
     nameSelect.addEventListener('change', () => {
       const isOther = nameSelect.value === 'Others';
@@ -126,16 +124,30 @@
       if (isOther) nameInput.focus();
     });
     row.dataset.existingFiles = JSON.stringify(existingFiles || []);
+    appendInstrumentFileInput(row);
     renderInstrumentFiles(row, []);
     row.querySelector('.remove-instrument').addEventListener('click', () => {
       row.remove();
       if (!instrumentList.children.length) addInstrument();
     });
-    row.querySelector('.instrument-files').addEventListener('change', (event) => {
-      renderInstrumentFiles(row, [...event.target.files]);
+    row.querySelector('.refresh-instruments').addEventListener('click', (event) => {
+      loadInstrumentOptions(event.currentTarget);
     });
     instrumentList.append(row);
     if (shouldFocus) nameSelect.focus();
+  }
+
+  function appendInstrumentFileInput(row) {
+    const input = document.createElement('input');
+    input.className = 'instrument-files';
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.addEventListener('change', () => {
+      const inputs = [...row.querySelectorAll('.instrument-files')];
+      if (input.files.length && inputs[inputs.length - 1] === input) appendInstrumentFileInput(row);
+      renderInstrumentFiles(row, inputs.flatMap((fileInput) => [...fileInput.files]));
+    });
+    row.querySelector('.instrument-file-inputs').append(input);
   }
 
   function renderInstrumentFiles(row, newFiles) {
@@ -152,6 +164,82 @@
 
   document.getElementById('add-instrument').addEventListener('click', () => addInstrument());
   addInstrument('Partitur');
+  loadInstrumentOptions();
+
+  function populateInstrumentSelect(select, selectedName, customInput) {
+    const names = [...new Set(availableInstrumentNames.map((name) => String(name || '').trim()).filter((name) => name && !/^(partitur|others)$/i.test(name)))];
+    select.replaceChildren(new Option('Partitur', 'Partitur'));
+    names.forEach((name) => select.add(new Option(name, name)));
+    select.add(new Option('Others', 'Others'));
+    const match = names.find((name) => name.toLocaleLowerCase() === String(selectedName || '').trim().toLocaleLowerCase());
+    if (String(selectedName || '').trim().toLocaleLowerCase() === 'partitur') {
+      select.value = 'Partitur';
+      customInput.value = '';
+      customInput.hidden = true;
+      customInput.required = false;
+    } else if (match) {
+      select.value = match;
+      customInput.value = '';
+      customInput.hidden = true;
+      customInput.required = false;
+    } else {
+      select.value = 'Others';
+      customInput.value = String(selectedName || '').trim();
+      customInput.hidden = false;
+      customInput.required = true;
+    }
+  }
+
+  function loadInstrumentOptions(triggerButton = null) {
+    // Keep the callback prefix accepted by jsonpResponse_ in Apps Script.
+    const callbackName = `cb_${Date.now()}_${++instrumentCallbackCounter}`;
+    const script = document.createElement('script');
+    let settled = false;
+    if (triggerButton) {
+      triggerButton.disabled = true;
+      triggerButton.classList.add('is-loading');
+    }
+    const timeout = window.setTimeout(() => finish(new Error('Waktu memuat daftar instrumen habis.')), 10000);
+    function finish(error, result) {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      delete window.SongBookCallbacks[callbackName];
+      script.remove();
+      if (triggerButton) {
+        triggerButton.disabled = false;
+        triggerButton.classList.remove('is-loading');
+      }
+      if (error || !result || !result.ok || !Array.isArray(result.instruments)) {
+        console.warn('Daftar instrumen dari sheet tidak dapat dimuat:', (error && error.message) || (result && result.error) || 'Respons tidak valid.');
+        if (triggerButton) triggerButton.title = 'Gagal memperbarui daftar instrumen';
+        return;
+      }
+      availableInstrumentNames = result.instruments;
+      instrumentList.querySelectorAll('.instrument-row').forEach((row) => {
+        const select = row.querySelector('.instrument-name-select');
+        const input = row.querySelector('.instrument-name');
+        const selectedName = select.value === 'Others' ? input.value : select.value;
+        populateInstrumentSelect(select, selectedName, input);
+      });
+      if (triggerButton) {
+        triggerButton.title = 'Daftar instrumen berhasil diperbarui';
+        window.setTimeout(() => {
+          if (triggerButton.isConnected) triggerButton.title = 'Perbarui daftar instrumen';
+        }, 2500);
+      }
+    }
+    window.SongBookCallbacks = window.SongBookCallbacks || {};
+    window.SongBookCallbacks[callbackName] = (result) => finish(null, result);
+    script.onerror = () => finish(new Error('Tidak dapat mengakses API daftar instrumen.'));
+    const url = new URL(API_URL);
+    url.searchParams.set('action', 'instruments');
+    url.searchParams.set('callback', `SongBookCallbacks.${callbackName}`);
+    // Force a fresh Apps Script response when a user explicitly refreshes the list.
+    url.searchParams.set('_refresh', String(Date.now()));
+    script.src = url.toString();
+    document.head.append(script);
+  }
 
   function getContentHtml() {
     const sections = [];
@@ -243,7 +331,7 @@
     const instrumentRenames = [];
     const seenInstrumentNames = new Set();
     for (const row of instrumentList.querySelectorAll('.instrument-row')) {
-      const files = [...row.querySelector('.instrument-files').files];
+      const files = [...row.querySelectorAll('.instrument-files')].flatMap((input) => [...input.files]);
       const nameSelect = row.querySelector('.instrument-name-select');
       const name = (nameSelect.value === 'Others' ? row.querySelector('.instrument-name').value : nameSelect.value).trim();
       if (!name && files.length) throw new Error('Isi nama instrumen untuk gambar yang dipilih.');
