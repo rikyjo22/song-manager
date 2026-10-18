@@ -38,6 +38,7 @@
         </div>
       </div>
       <label class="field song-search-field"><span>Cari lagu</span><input id="manager-song-search" type="search" placeholder="Cari judul, kategori, atau nomor"></label>
+      <nav id="manager-category-filters" class="manager-category-filters" aria-label="Filter kategori lagu"></nav>
       <div id="manager-update-progress" class="manager-update-progress" hidden aria-live="polite">
         <div id="manager-progress-track" class="manager-progress-track" role="progressbar" aria-label="Pembaruan daftar lagu" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Menunggu data dari database"><span class="manager-progress-fill"></span></div>
         <span id="manager-progress-label" class="manager-progress-label"></span>
@@ -103,7 +104,19 @@
   </main>
   <template id="instrument-template">
     <div class="instrument-row">
-      <label class="field instrument-name-field"><span>Nama instrumen</span><input class="instrument-name" type="text" placeholder="Contoh: general, violin"></label>
+      <label class="field instrument-name-field"><span>Nama instrumen</span>
+        <select class="instrument-name-select">
+          <option value="Partitur">Partitur</option>
+          <option value="Flute">Flute</option>
+          <option value="Clarinet">Clarinet</option>
+          <option value="Violin">Violin</option>
+          <option value="Saxophone">Saxophone</option>
+          <option value="Alto Sax">Alto Sax</option>
+          <option value="Trumpet">Trumpet</option>
+          <option value="Others">Others</option>
+        </select>
+        <input class="instrument-name" type="text" placeholder="Ketik nama instrumen" aria-label="Nama instrumen lainnya" hidden>
+      </label>
       <label class="field file-field"><span>Gambar partitur</span><input class="instrument-files" type="file" accept="image/*" multiple><span class="file-help">Bisa memilih lebih dari satu gambar.</span></label>
       <button class="icon-button remove-instrument" type="button" aria-label="Hapus instrumen" title="Hapus instrumen">×</button>
       <div class="file-list" aria-live="polite"></div>
@@ -130,6 +143,12 @@
   <dialog id="manager-score-image-dialog" class="manager-score-image-dialog" aria-label="Tampilan penuh partitur">
     <button id="close-manager-score-image" class="manager-score-image-close" type="button" aria-label="Tutup gambar">×</button>
     <img id="manager-score-image-full" alt="Partitur diperbesar">
+  </dialog>
+  <dialog id="manager-delete-dialog" class="manager-delete-dialog" aria-labelledby="manager-delete-title">
+    <section class="manager-delete-frame">
+      <header class="manager-delete-header"><div><p class="manager-delete-kicker">KONFIRMASI</p><h2 id="manager-delete-title">Hapus lagu?</h2></div><button id="close-manager-delete" class="manager-delete-close" type="button" aria-label="Batal">×</button></header>
+      <div class="manager-delete-body"><p id="manager-delete-message"></p><div class="manager-delete-actions"><button id="cancel-manager-delete" type="button">Batal</button><button id="confirm-manager-delete" type="button">Hapus lagu</button></div></div>
+    </section>
   </dialog>
   <!-- Apps Script hanya digunakan sebagai API penyimpanan. -->
   <script src="script.js" defer></script>

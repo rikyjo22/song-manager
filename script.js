@@ -2,9 +2,11 @@
   'use strict';
 
   // Tempel URL Web App deployment Apps Script di antara tanda petik.
-  const API_URL = 'https://script.google.com/macros/s/AKfycbySj5dccqhqMXn16w53BM0fM1XzGAd_8x0G8YR-EOO8tlRHQ_mc9oszy750yHamF_FroQ/exec';
+  const API_URL = 'https://script.google.com/macros/s/AKfycbw4MJSreur798HEPHFqY8jgUVLYC1b_Fs_UsGwAq0uXZqBboszAyhPKZNCTQqaWm4hZNQ/exec';
   const MANAGER_CACHE_KEY = 'song-manager:saved-songs:v1';
+  const MANAGER_DELETED_IDS_KEY = 'song-manager:deleted-song-ids:v1';
   const CATEGORY_LABELS = { PS: 'Psallo', NR: 'Nyanyian Rohani', SP: 'Tambahan', ZR: 'Zangkoor', KMR: 'Kaum Muda', SM: 'Sekolah Minggu', OTH: 'Other' };
+  const CATEGORIES = [{ code: 'ALL', label: 'Semua' }, ...Object.entries(CATEGORY_LABELS).map(([code, label]) => ({ code, label }))];
   const form = document.getElementById('song-form');
   const instrumentList = document.getElementById('instrument-list');
   const template = document.getElementById('instrument-template');
@@ -16,6 +18,7 @@
   const managerListStatus = document.getElementById('manager-list-status');
   const managerLastUpdated = document.getElementById('manager-last-updated');
   const managerSearch = document.getElementById('manager-song-search');
+  const managerCategoryFilters = document.getElementById('manager-category-filters');
   const managerUpdateProgress = document.getElementById('manager-update-progress');
   const managerProgressTrack = document.getElementById('manager-progress-track');
   const managerProgressLabel = document.getElementById('manager-progress-label');
@@ -30,11 +33,25 @@
   const managerScoreCarousel = document.getElementById('manager-score-carousel');
   const managerScoreImageDialog = document.getElementById('manager-score-image-dialog');
   const managerScoreImageFull = document.getElementById('manager-score-image-full');
+  const managerDeleteDialog = document.getElementById('manager-delete-dialog');
+  const managerDeleteMessage = document.getElementById('manager-delete-message');
+  const confirmManagerDeleteButton = document.getElementById('confirm-manager-delete');
   let previewScoreSong = null;
   let previewScoreInstrument = '';
   let previewZoom = 1;
   let previewPinchStart = null;
   let savedSongs = [];
+  let activeManagerCategory = 'ALL';
+  let pendingDeleteSong = null;
+  let pendingDeleteButton = null;
+  let managerDeleteSuccessMode = false;
+  const recentlyDeletedSongIds = new Set();
+  try {
+    const deletedIds = JSON.parse(localStorage.getItem(MANAGER_DELETED_IDS_KEY) || '[]');
+    if (Array.isArray(deletedIds)) deletedIds.forEach((id) => recentlyDeletedSongIds.add(String(id)));
+  } catch (error) {}
+  let pendingNewSongHighlight = null;
+  let newSongHighlightTimer = 0;
   let editingSongId = '';
   let pendingImages = {};
   let listCallbackCounter = 0;
@@ -92,9 +109,22 @@
   window.addEventListener('resize', updateHighlight);
   updateHighlight();
 
-  function addInstrument(name = '', existingFiles = [], shouldFocus = true) {
+  function addInstrument(name = 'Partitur', existingFiles = [], shouldFocus = true) {
     const row = template.content.firstElementChild.cloneNode(true);
-    row.querySelector('.instrument-name').value = name;
+    const nameSelect = row.querySelector('.instrument-name-select');
+    const nameInput = row.querySelector('.instrument-name');
+    const presetExists = [...nameSelect.options].some((option) => option.value === name && option.value !== 'Others');
+    nameSelect.value = presetExists ? name : 'Others';
+    nameInput.value = presetExists ? '' : name;
+    nameInput.hidden = presetExists;
+    nameInput.required = !presetExists;
+    row.dataset.originalInstrument = existingFiles && existingFiles.length ? name : '';
+    nameSelect.addEventListener('change', () => {
+      const isOther = nameSelect.value === 'Others';
+      nameInput.hidden = !isOther;
+      nameInput.required = isOther;
+      if (isOther) nameInput.focus();
+    });
     row.dataset.existingFiles = JSON.stringify(existingFiles || []);
     renderInstrumentFiles(row, []);
     row.querySelector('.remove-instrument').addEventListener('click', () => {
@@ -105,7 +135,7 @@
       renderInstrumentFiles(row, [...event.target.files]);
     });
     instrumentList.append(row);
-    if (shouldFocus) row.querySelector('.instrument-name').focus();
+    if (shouldFocus) nameSelect.focus();
   }
 
   function renderInstrumentFiles(row, newFiles) {
@@ -121,7 +151,7 @@
   }
 
   document.getElementById('add-instrument').addEventListener('click', () => addInstrument());
-  addInstrument('general');
+  addInstrument('Partitur');
 
   function getContentHtml() {
     const sections = [];
@@ -210,16 +240,20 @@
   async function collectPayload() {
     const instruments = {};
     const instrumentNames = [];
+    const instrumentRenames = [];
     const seenInstrumentNames = new Set();
     for (const row of instrumentList.querySelectorAll('.instrument-row')) {
       const files = [...row.querySelector('.instrument-files').files];
-      const name = row.querySelector('.instrument-name').value.trim();
+      const nameSelect = row.querySelector('.instrument-name-select');
+      const name = (nameSelect.value === 'Others' ? row.querySelector('.instrument-name').value : nameSelect.value).trim();
       if (!name && files.length) throw new Error('Isi nama instrumen untuk gambar yang dipilih.');
       if (!name) continue;
       const key = name.toLowerCase();
       if (seenInstrumentNames.has(key)) throw new Error(`Nama instrumen “${name}” muncul lebih dari satu kali.`);
       seenInstrumentNames.add(key);
       instrumentNames.push(name);
+      const originalName = row.dataset.originalInstrument || '';
+      if (originalName && originalName !== name) instrumentRenames.push({ from: originalName, to: name });
       if (files.length) instruments[name] = await Promise.all(files.map(readFile));
     }
 
@@ -236,11 +270,12 @@
       id: editingSongId,
       action: editingSongId ? 'update' : 'create',
       instrumentNames,
+      instrumentRenames,
       instruments
     };
   }
 
-  function loadSavedSongs() {
+  function loadSavedSongs(forceFresh = false) {
     if (isLoadingSavedSongs) return;
     isLoadingSavedSongs = true;
     managerListStatus.textContent = 'Memuat daftar lagu dari database…';
@@ -265,7 +300,7 @@
         setUpdateProgress('error', 'Pembaruan gagal. Cache sebelumnya tetap tersedia.');
         return;
       }
-      savedSongs = Array.isArray(result.songs) ? result.songs : [];
+      savedSongs = (Array.isArray(result.songs) ? result.songs : []).filter((song) => !recentlyDeletedSongIds.has(String(song.id)));
       const updatedAt = new Date().toISOString();
       try {
         localStorage.setItem(MANAGER_CACHE_KEY, JSON.stringify({ updatedAt, songs: savedSongs }));
@@ -275,6 +310,7 @@
         managerListStatus.textContent = `${savedSongs.length} lagu ditemukan di database.`;
       }
       renderSavedSongs();
+      if (pendingNewSongHighlight) highlightNewlySavedSong(pendingNewSongHighlight);
       setUpdateProgress('complete', `Selesai diperbarui · ${savedSongs.length} lagu.`);
     }
     window.SongBookCallbacks = window.SongBookCallbacks || {};
@@ -282,6 +318,7 @@
     script.onerror = () => finish(new Error('Tidak dapat mengakses API Apps Script.'));
     const url = new URL(API_URL);
     url.searchParams.set('action', 'songs');
+    if (forceFresh) url.searchParams.set('fresh', '1');
     url.searchParams.set('callback', `SongBookCallbacks.${callbackName}`);
     script.src = url.toString();
     document.head.append(script);
@@ -309,7 +346,10 @@
     try {
       const cached = JSON.parse(localStorage.getItem(MANAGER_CACHE_KEY) || 'null');
       if (!cached || !Array.isArray(cached.songs)) return false;
-      savedSongs = cached.songs;
+      savedSongs = cached.songs.filter((song) => !recentlyDeletedSongIds.has(String(song.id)));
+      if (savedSongs.length !== cached.songs.length) {
+        localStorage.setItem(MANAGER_CACHE_KEY, JSON.stringify({ ...cached, songs: savedSongs }));
+      }
       const updated = cached.updatedAt ? new Date(cached.updatedAt) : null;
       setLastUpdated(updated && !Number.isNaN(updated.getTime()) ? updated : null);
       const updatedLabel = updated && !Number.isNaN(updated.getTime())
@@ -323,10 +363,32 @@
     }
   }
 
+  function renderManagerCategoryFilters() {
+    managerCategoryFilters.replaceChildren();
+    CATEGORIES.forEach(({ code, label }) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'manager-category-chip';
+      button.textContent = label;
+      button.setAttribute('aria-pressed', String(activeManagerCategory === code));
+      button.addEventListener('click', () => {
+        activeManagerCategory = code;
+        renderManagerCategoryFilters();
+        renderSavedSongs();
+      });
+      managerCategoryFilters.append(button);
+    });
+  }
+
   function renderSavedSongs() {
-    const query = managerSearch.value.trim().toLocaleLowerCase('id');
-    const visible = savedSongs.filter((song) => `${song.category} ${song.number} ${song.title} ${song.songCreator || ''} ${song.dateCreate || ''}`.toLocaleLowerCase('id').includes(query));
+    const query = managerSearch.value.trim().toLocaleLowerCase('id').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const visible = savedSongs.filter((song) => {
+      if (activeManagerCategory !== 'ALL' && song.category !== activeManagerCategory) return false;
+      const searchable = `${song.category} ${song.number} ${song.title} ${song.key || ''} ${song.genre || ''} ${song.songCreator || ''} ${song.dateCreate || ''} ${song.tempo || ''}`.toLocaleLowerCase('id').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      return searchable.includes(query);
+    });
     managerSongList.replaceChildren();
+    managerSongList.style.maxHeight = '';
     if (!visible.length) {
       const empty = document.createElement('div');
       empty.className = 'manager-empty';
@@ -371,6 +433,36 @@
       fragment.append(row);
     });
     managerSongList.append(fragment);
+    if (visible.length > 5) {
+      const listTop = managerSongList.getBoundingClientRect().top;
+      const fifthRowBottom = managerSongList.children[4].getBoundingClientRect().bottom;
+      managerSongList.style.maxHeight = `${Math.ceil(fifthRowBottom - listTop)}px`;
+    }
+  }
+
+  function highlightNewlySavedSong(songData) {
+    const song = savedSongs.find((item) => songData.id && String(item.id) === String(songData.id))
+      || [...savedSongs].reverse().find((item) => item.category === songData.category && String(item.number) === String(songData.number) && item.title === songData.title);
+    pendingNewSongHighlight = null;
+    if (!song) return;
+    const row = [...managerSongList.querySelectorAll('.manager-song-row')].find((item) => item.dataset.songId === String(song.id));
+    if (!row) return;
+    window.clearTimeout(newSongHighlightTimer);
+    managerSongList.querySelectorAll('.manager-song-just-added').forEach((item) => {
+      item.classList.remove('manager-song-just-added');
+      item.querySelector('.manager-new-song-badge')?.remove();
+    });
+    row.classList.add('manager-song-just-added');
+    const badge = document.createElement('span');
+    badge.className = 'manager-new-song-badge';
+    badge.textContent = songData.badgeText || 'Lagu baru';
+    row.querySelector('.manager-song-title')?.append(' ', badge);
+    managerListStatus.textContent = songData.statusText || `${song.title} berhasil ditambahkan.`;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    newSongHighlightTimer = window.setTimeout(() => {
+      row.classList.remove('manager-song-just-added');
+      badge.remove();
+    }, 7000);
   }
 
   function htmlToInput(html) {
@@ -432,6 +524,7 @@
     previewContent.scrollTop = 0;
     renderPreviewScoreButtons(song.images);
     previewDialog.showModal();
+    document.body.classList.add('manager-preview-open');
     scheduleManagerPreviewFit();
     document.getElementById('close-manager-preview').focus();
   }
@@ -607,7 +700,7 @@
     pendingImages = song.images && typeof song.images === 'object' ? song.images : {};
     const entries = Object.entries(pendingImages);
     if (entries.length) entries.forEach(([name, files]) => addInstrument(name, Array.isArray(files) ? files : [], false));
-    else addInstrument('general', [], false);
+    else addInstrument('Partitur', [], false);
     document.getElementById('song-detail-heading').textContent = 'Edit detail lagu';
     submitButton.querySelector('span').textContent = 'Simpan perubahan';
     cancelEditButton.hidden = false;
@@ -621,7 +714,7 @@
     pendingImages = {};
     form.reset();
     instrumentList.replaceChildren();
-    addInstrument('general', [], false);
+    addInstrument('Partitur', [], false);
     document.getElementById('song-detail-heading').textContent = 'Detail lagu baru';
     submitButton.querySelector('span').textContent = 'Simpan lagu';
     cancelEditButton.hidden = true;
@@ -634,16 +727,28 @@
     if (!form.reportValidity()) return;
     submitButton.disabled = true;
     const wasEditing = Boolean(editingSongId);
-    setStatus(wasEditing ? 'Menyimpan perubahan lagu dan gambar…' : 'Menyiapkan lagu dan gambar…', 'loading');
+    setStatus(wasEditing ? 'Menyimpan perubahan lagu…' : 'Menyimpan lagu…', 'loading');
     try {
       const payload = await collectPayload();
       if (!songInput.value.trim()) throw new Error('Isi lirik dan chord sebelum menyimpan.');
-      await postToAppsScript(payload);
       const fileCount = Object.values(payload.instruments || {}).reduce((sum, files) => sum + files.length, 0);
+      if (fileCount) setStatus('Upload gambar…', 'loading');
+      const saveResult = await postToAppsScript(payload);
       resetEditor();
-      setStatus(wasEditing ? `Perubahan lagu tersimpan.${fileCount ? ` ${fileCount} gambar diperbarui di Google Drive.` : ''}` : (fileCount ? `Lagu tersimpan. ${fileCount} gambar diunggah ke Google Drive.` : 'Lagu tersimpan tanpa gambar partitur.'), 'success');
-      managerListStatus.textContent = 'Lagu tersimpan. Tekan “Perbarui daftar” untuk memuat perubahan ke daftar.';
+      setStatus(wasEditing ? `Perubahan lagu tersimpan.${fileCount ? ' Upload gambar selesai.' : ''}` : (fileCount ? 'Lagu tersimpan. Upload gambar selesai.' : 'Lagu tersimpan tanpa gambar partitur.'), 'success');
       submitButton.disabled = false;
+      pendingNewSongHighlight = {
+        id: saveResult && saveResult.id,
+        category: payload.category,
+        number: payload.number,
+        title: payload.title,
+        badgeText: wasEditing ? 'Baru saja diperbarui' : 'Lagu baru',
+        statusText: wasEditing ? `${payload.title} baru saja diperbarui.` : `${payload.title} berhasil ditambahkan.`
+      };
+      activeManagerCategory = 'ALL';
+      managerSearch.value = '';
+      renderManagerCategoryFilters();
+      loadSavedSongs(true);
     } catch (error) {
       console.error('[Song Manager] Penyimpanan gagal:', error);
       setStatus(`Gagal menyimpan lagu: ${error.message || 'Terjadi kesalahan yang tidak diketahui.'}`, 'error');
@@ -651,7 +756,7 @@
     }
   });
 
-  managerSongList.addEventListener('click', async (event) => {
+  managerSongList.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-action]');
     const row = event.target.closest('.manager-song-row');
     const songId = button ? button.dataset.songId : row && row.dataset.songId;
@@ -667,16 +772,76 @@
       return;
     }
     if (button.dataset.action !== 'delete') return;
-    if (!window.confirm(`Hapus lagu ${song.category} ${song.number} · ${song.title} dari database? File partitur terkait juga akan dipindahkan ke Sampah Google Drive.`)) return;
+    pendingDeleteSong = song;
+    pendingDeleteButton = button;
+    managerDeleteSuccessMode = false;
+    managerDeleteDialog.classList.remove('is-success');
+    document.getElementById('manager-delete-title').textContent = 'Hapus lagu?';
+    document.getElementById('cancel-manager-delete').hidden = false;
+    managerDeleteMessage.textContent = `Hapus lagu ${song.category} ${song.number} · ${song.title} dari database?`;
+    confirmManagerDeleteButton.disabled = false;
+    confirmManagerDeleteButton.textContent = 'Hapus lagu';
+    managerDeleteDialog.showModal();
+  });
+
+  function cancelManagerDelete() {
+    if (managerDeleteDialog.open) managerDeleteDialog.close();
+    pendingDeleteSong = null;
+    pendingDeleteButton = null;
+    managerDeleteSuccessMode = false;
+    managerDeleteDialog.classList.remove('is-success');
+    document.getElementById('manager-delete-title').textContent = 'Hapus lagu?';
+    document.getElementById('cancel-manager-delete').hidden = false;
+    confirmManagerDeleteButton.textContent = 'Hapus lagu';
+  }
+
+  document.getElementById('close-manager-delete').addEventListener('click', cancelManagerDelete);
+  document.getElementById('cancel-manager-delete').addEventListener('click', cancelManagerDelete);
+  managerDeleteDialog.addEventListener('cancel', (event) => event.preventDefault());
+  confirmManagerDeleteButton.addEventListener('click', async () => {
+    const song = pendingDeleteSong;
+    const button = pendingDeleteButton;
+    if (!song || !button) {
+      if (managerDeleteSuccessMode) cancelManagerDelete();
+      return;
+    }
     button.disabled = true;
+    confirmManagerDeleteButton.disabled = true;
+    confirmManagerDeleteButton.textContent = 'Menghapus…';
     managerListStatus.textContent = `Menghapus ${song.title}…`;
+    let deleted = false;
     try {
       await postToAppsScript({ action: 'delete', id: song.id });
+      deleted = true;
       if (editingSongId === song.id) resetEditor();
-      managerListStatus.textContent = `${song.title} berhasil dihapus. Tekan “Perbarui daftar” untuk memperbarui daftar.`;
+      recentlyDeletedSongIds.add(String(song.id));
+      try { localStorage.setItem(MANAGER_DELETED_IDS_KEY, JSON.stringify([...recentlyDeletedSongIds])); } catch (storageError) {}
+      savedSongs = savedSongs.filter((item) => String(item.id) !== String(song.id));
+      try {
+        const updatedAt = new Date().toISOString();
+        localStorage.setItem(MANAGER_CACHE_KEY, JSON.stringify({ updatedAt, songs: savedSongs }));
+        setLastUpdated(updatedAt);
+      } catch (storageError) {}
+      renderSavedSongs();
+      const deletedSongLabel = `${song.category} ${song.number} ${song.title}`.trim();
+      managerListStatus.textContent = `Lagu ${deletedSongLabel} berhasil dihapus.`;
+      document.getElementById('manager-delete-title').textContent = 'Penghapusan berhasil';
+      managerDeleteMessage.textContent = `Lagu ${deletedSongLabel} berhasil dihapus.`;
+      document.getElementById('cancel-manager-delete').hidden = true;
+      managerDeleteSuccessMode = true;
+      managerDeleteDialog.classList.add('is-success');
+      pendingDeleteSong = null;
+      pendingDeleteButton = null;
+      loadSavedSongs(true);
     } catch (error) {
       managerListStatus.textContent = `Gagal menghapus lagu: ${error.message || 'Terjadi kesalahan.'}`;
       button.disabled = false;
+      managerDeleteDialog.close();
+      pendingDeleteSong = null;
+      pendingDeleteButton = null;
+    } finally {
+      confirmManagerDeleteButton.disabled = false;
+      confirmManagerDeleteButton.textContent = deleted ? 'Tutup' : 'Hapus lagu';
     }
   });
 
@@ -689,6 +854,7 @@
     pageHeaderToggle.querySelector('[aria-hidden="true"]').textContent = collapsed ? 'v' : '^';
   });
   document.getElementById('close-manager-preview').addEventListener('click', () => previewDialog.close());
+  previewDialog.addEventListener('close', () => document.body.classList.remove('manager-preview-open'));
   previewDialog.addEventListener('click', (event) => { if (event.target === previewDialog) previewDialog.close(); });
   previewInstruments.addEventListener('click', (event) => {
     const button = event.target.closest('.manager-preview-instrument-button');
@@ -700,6 +866,7 @@
   document.getElementById('close-manager-score-image').addEventListener('click', () => managerScoreImageDialog.close());
   managerScoreImageDialog.addEventListener('click', (event) => { if (event.target === managerScoreImageDialog) managerScoreImageDialog.close(); });
   managerSearch.addEventListener('input', renderSavedSongs);
+  renderManagerCategoryFilters();
   cancelEditButton.addEventListener('click', resetEditor);
   if (!loadCachedSongs()) {
     managerListStatus.textContent = 'Tekan “Perbarui daftar” untuk mengambil lagu dari database.';
