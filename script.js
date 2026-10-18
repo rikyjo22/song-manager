@@ -197,6 +197,8 @@
     let settled = false;
     if (triggerButton) {
       triggerButton.disabled = true;
+      triggerButton.setAttribute('aria-busy', 'true');
+      triggerButton.classList.remove('is-error');
       triggerButton.classList.add('is-loading');
     }
     const timeout = window.setTimeout(() => finish(new Error('Waktu memuat daftar instrumen habis.')), 10000);
@@ -208,11 +210,15 @@
       script.remove();
       if (triggerButton) {
         triggerButton.disabled = false;
+        triggerButton.removeAttribute('aria-busy');
         triggerButton.classList.remove('is-loading');
       }
       if (error || !result || !result.ok || !Array.isArray(result.instruments)) {
         console.warn('Daftar instrumen dari sheet tidak dapat dimuat:', (error && error.message) || (result && result.error) || 'Respons tidak valid.');
-        if (triggerButton) triggerButton.title = 'Gagal memperbarui daftar instrumen';
+        if (triggerButton) {
+          triggerButton.classList.add('is-error');
+          triggerButton.title = 'Gagal memperbarui daftar instrumen. Coba lagi.';
+        }
         return;
       }
       availableInstrumentNames = result.instruments;
@@ -223,6 +229,7 @@
         populateInstrumentSelect(select, selectedName, input);
       });
       if (triggerButton) {
+        triggerButton.classList.remove('is-error');
         triggerButton.title = 'Daftar instrumen berhasil diperbarui';
         window.setTimeout(() => {
           if (triggerButton.isConnected) triggerButton.title = 'Perbarui daftar instrumen';
