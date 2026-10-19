@@ -2,7 +2,7 @@
   'use strict';
 
   // Tempel URL Web App deployment Apps Script di antara tanda petik.
-  const API_URL = 'https://script.google.com/macros/s/AKfycbykCJAM0KYYHGihjbhn15Pn4RVG4PdTWHl2-DF-BC81DMiw66GeDTetsV6WZ0xD_El9UA/exec';
+  const API_URL = 'https://script.google.com/macros/s/AKfycbzB0sm4UrusQgjPHyC_n8QDy9SdbT5gCi0gvzN-nW-5yocuas7Jr0m3PXcUrrhhgicwOg/exec';
   const MANAGER_CACHE_KEY = 'song-manager:saved-songs:v1';
   const MANAGER_DELETED_IDS_KEY = 'song-manager:deleted-song-ids:v1';
   const MANAGER_RECENT_SONGS_KEY = 'song-manager:recent-songs:v1';
@@ -363,13 +363,9 @@
       if (files.length) instruments[name] = await Promise.all(files.map(readFile));
     }
 
-    const enteredNumber = document.getElementById('number').value.trim();
-    const generatedNumber = !editingSongId && !editingTemporarySongId && !enteredNumber
-      ? Array.from({ length: 3 }, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 26)]).join('')
-      : enteredNumber;
     return {
       category: document.getElementById('category').value,
-      number: generatedNumber,
+      number: document.getElementById('number').value.trim(),
       title: document.getElementById('title').value.trim(),
       key: document.getElementById('key').value.trim(),
       genre: document.getElementById('genre').value.trim(),
