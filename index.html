@@ -13,7 +13,7 @@
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
   <title>Song Manager</title>
   <!-- Frontend ini dimuat dari hosting/static server terpisah dari Apps Script. -->
-  <link rel="stylesheet" href="style.css?v=temporary-edit-1">
+  <link rel="stylesheet" href="style.css?v=equal-database-row-1">
 </head>
 <body>
   <main class="page-shell">
@@ -75,7 +75,7 @@
               <option value="OTH">Other (OTH)</option>
             </select>
           </label>
-          <label class="field"><span>Nomor <b>*</b></span><input id="number" type="text" inputmode="numeric" placeholder="Contoh: 1" required></label>
+          <label class="field"><span>Nomor (opsional)</span><small class="optional-hint">Boleh dikosongkan jika tidak ada</small><input id="number" type="text" placeholder="Boleh dikosongkan"></label>
           <label class="field field-wide"><span>Judul lagu <b>*</b></span><input id="title" type="text" placeholder="Contoh: Kasih dari Sorga" required></label>
           <label class="field"><span>Nada dasar</span><input id="key" type="text" placeholder="Contoh: C, D♭, Am"></label>
           <label class="field"><span>Jenis musik</span><input id="genre" type="text" placeholder="Contoh: Hymne"></label>
@@ -167,6 +167,6 @@
     </section>
   </dialog>
   <!-- Apps Script hanya digunakan sebagai API penyimpanan. -->
-  <script src="script.js?v=temporary-edit-1" defer></script>
+  <script src="script.js?v=optional-song-number-1" defer></script>
 </body>
 </html>

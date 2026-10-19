@@ -5,6 +5,7 @@
 @media(max-width:720px){.page-shell{width:min(100% - 28px,1050px);padding-top:14px}.card{padding:21px 18px}.field-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.field-wide{grid-column:span 2}.editor-grid{grid-template-columns:1fr}.section-heading{align-items:flex-start;flex-direction:column}.section-heading .button{align-self:flex-start}.instrument-row{grid-template-columns:1fr 32px}.instrument-name-field{grid-column:1}.file-field{grid-column:1}.remove-instrument{grid-column:2;grid-row:1}.file-list{grid-column:1/-1}.form-footer{align-items:flex-start;flex-direction:column}.button-primary{width:100%}}
 @media(max-width:420px){.field-grid{grid-template-columns:1fr}.field-wide{grid-column:auto}.status-pill{white-space:normal}.card{padding:19px 15px}}
 .song-content{overflow-wrap:anywhere}
+.field .optional-hint{margin-top:-5px;color:#87928a;font-size:10px;font-weight:400;line-height:1.35}
 .song-content pre{max-width:100%;margin:0;font-family:'Courier New',monospace;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4}
 .song-content table{display:block;max-width:100%;overflow-x:auto}
 .song-content .song-line{display:grid;grid-template-columns:minmax(3.5rem,auto) minmax(0,1fr);gap:12px;align-items:baseline;margin:0 0 7px}
@@ -125,3 +126,9 @@ body{height:100vh;height:100dvh;overflow:hidden}
 .app-footer{width:100%;flex:0 0 auto;margin-top:auto;padding:8px 0 10px}
 .app-credit-name{color:#344139;font-weight:700}
 @media(max-width:720px){.page-shell{padding-top:8px}.app-footer{width:100%;padding-bottom:max(8px,env(safe-area-inset-bottom))}}
+#database-panel #manager-song-list{grid-auto-rows:72px;align-content:start}
+#database-panel #manager-song-list .manager-song-row{height:72px;min-height:72px;max-height:72px;overflow:hidden}
+#database-panel #manager-song-list .manager-song-info{overflow:hidden}
+#database-panel #manager-song-list .manager-song-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#database-panel #manager-song-list .manager-song-meta{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;line-height:1.25}
+@media(max-width:600px){#database-panel #manager-song-list{grid-auto-rows:96px}#database-panel #manager-song-list .manager-song-row{height:96px;min-height:96px;max-height:96px}#database-panel #manager-song-list .manager-song-meta{-webkit-line-clamp:1;line-clamp:1;white-space:nowrap}}
