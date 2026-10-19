@@ -13,41 +13,54 @@
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
   <title>Song Manager</title>
   <!-- Frontend ini dimuat dari hosting/static server terpisah dari Apps Script. -->
-  <link rel="stylesheet" href="style.css?v=android-instrument-reload-1">
+  <link rel="stylesheet" href="style.css?v=temporary-edit-1">
 </head>
 <body>
   <main class="page-shell">
-    <header class="page-header">
-      <div>
-        <p class="eyebrow">BUKU LAGU · ADMIN</p>
-        <h1>Kelola lagu</h1>
-        <p class="intro">Aplikasi ini dibuat untuk membantu pemain musik gereja</p>
-      </div>
-      <div class="page-header-actions">
-        <button id="toggle-page-header" class="header-toggle-button" type="button" aria-expanded="true" aria-label="Ciutkan header"><span aria-hidden="true">^</span><span class="header-toggle-label">Ciutkan header</span></button>
-      </div>
-    </header>
-    <div class="app-credit"><img src="./icons/lagu-rohani-192.png" alt=""><span>Created by Riky Jo @2026</span></div>
-
-    <section class="card saved-songs-card" aria-labelledby="saved-songs-heading">
+    <nav class="manager-tabs" role="tablist" aria-label="Daftar lagu">
+      <button class="manager-tab is-active" id="database-tab" type="button" role="tab" aria-selected="true" aria-controls="database-panel">Database Lagu</button>
+      <button class="manager-tab" id="temporary-tab" type="button" role="tab" aria-selected="false" aria-controls="temporary-panel" tabindex="-1">New Song Temporary</button>
+    </nav>
+    <section class="card saved-songs-card manager-tab-panel" id="database-panel" role="tabpanel" aria-labelledby="database-tab">
       <div class="section-heading">
         <div class="saved-songs-heading-group">
           <p class="section-kicker">DATABASE LAGU</p>
-          <div class="saved-songs-title-row"><h2 id="saved-songs-heading">Lagu tersimpan</h2><button class="button button-secondary" id="refresh-songs" type="button">Perbarui daftar</button></div>
+          <div class="saved-songs-title-row"><h2 id="saved-songs-heading">Lagu tersimpan</h2><div class="saved-songs-heading-actions"><button class="button button-secondary" id="refresh-songs" type="button">Perbarui daftar</button></div></div>
           <p id="manager-last-updated" class="manager-last-updated" hidden></p>
         </div>
       </div>
-      <label class="field song-search-field"><span>Cari lagu</span><input id="manager-song-search" type="search" placeholder="Cari judul, kategori, atau nomor"></label>
-      <nav id="manager-category-filters" class="manager-category-filters" aria-label="Filter kategori lagu"></nav>
+      <div class="manager-search-row"><label class="field song-search-field"><span>Cari lagu</span><input id="manager-song-search" type="search" placeholder="Cari judul, kategori, atau nomor"></label><select id="manager-category-filters" class="manager-category-filter" aria-label="Filter kategori lagu"><option value="ALL">Semua</option><option value="PS">Psallo</option><option value="NR">NR</option><option value="SP">Tambahan (SP)</option><option value="ZR">Zangkoor (ZR)</option><option value="KMR">Kaum Muda (KMR)</option><option value="SM">Sekolah Minggu (SM)</option><option value="OTH">Other (OTH)</option></select></div>
       <div id="manager-update-progress" class="manager-update-progress" hidden aria-live="polite">
         <div id="manager-progress-track" class="manager-progress-track" role="progressbar" aria-label="Pembaruan daftar lagu" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Menunggu data dari database"><span class="manager-progress-fill"></span></div>
         <span id="manager-progress-label" class="manager-progress-label"></span>
       </div>
-      <p id="manager-list-status" class="manager-list-status" role="status" aria-live="polite">Memuat daftar lagu…</p>
+      <div class="manager-list-toolbar"><p id="manager-list-status" class="manager-list-status" role="status" aria-live="polite">Memuat daftar lagu…</p><button class="button button-primary saved-songs-new-button" id="open-new-song" type="button">+ Lagu Baru</button></div>
       <div id="manager-song-list" class="manager-song-list"></div>
     </section>
 
-    <form id="song-form">
+    <section class="card saved-songs-card manager-tab-panel" id="temporary-panel" role="tabpanel" aria-labelledby="temporary-tab" hidden>
+      <div class="section-heading">
+        <div class="saved-songs-heading-group">
+          <p class="section-kicker">DAFTAR SEMENTARA</p>
+          <div class="saved-songs-title-row"><h2>New Song Temporary</h2><div class="saved-songs-heading-actions"><button class="button button-secondary" id="refresh-temporary-songs" type="button">Perbarui daftar</button><button class="button button-primary temporary-access-button" id="create-temporary-access" type="button">Beri akses</button><button class="button button-secondary temporary-migrate-button" id="migrate-temporary-songs" type="button">Migrasi Data</button><button class="button button-secondary temporary-migration-cancel" id="cancel-temporary-migration" type="button" hidden>Batal</button></div></div>
+          <p id="temporary-last-updated" class="manager-last-updated" hidden></p>
+        </div>
+      </div>
+      <div class="manager-search-row"><label class="field song-search-field"><span>Cari lagu</span><input id="temporary-song-search" type="search" placeholder="Cari judul, kategori, atau nomor"></label><select id="temporary-category-filters" class="manager-category-filter" aria-label="Filter kategori lagu sementara"><option value="ALL">Semua</option><option value="PS">Psallo</option><option value="NR">NR</option><option value="SP">Tambahan (SP)</option><option value="ZR">Zangkoor (ZR)</option><option value="KMR">Kaum Muda (KMR)</option><option value="SM">Sekolah Minggu (SM)</option><option value="OTH">Other (OTH)</option></select></div>
+      <div class="manager-list-toolbar"><p id="temporary-list-status" class="manager-list-status" role="status" aria-live="polite">Tekan “Perbarui daftar” untuk memuat lagu sementara.</p></div>
+      <div id="temporary-song-list" class="manager-song-list"></div>
+    </section>
+
+    <dialog id="temporary-access-dialog" class="manager-delete-dialog temporary-access-dialog" aria-labelledby="temporary-access-title">
+      <section class="manager-delete-frame">
+        <header class="manager-delete-header"><div><p class="manager-delete-kicker">AKSES SEMENTARA</p><h2 id="temporary-access-title">Kode akses berhasil dibuat</h2></div><button id="close-temporary-access" class="manager-delete-close" type="button" aria-label="Tutup">&#215;</button></header>
+        <div class="manager-delete-body"><output id="temporary-access-code" class="temporary-access-code" aria-label="Kode akses"></output><p id="temporary-access-expiry" role="status" aria-live="polite"></p><div class="manager-delete-actions"><button id="dismiss-temporary-access" type="button">Tutup</button></div></div>
+      </section>
+    </dialog>
+
+    <dialog id="song-form-dialog" class="song-form-dialog" aria-labelledby="song-form-dialog-title">
+    <form id="song-form" class="song-form-dialog-content">
+      <header class="song-form-dialog-header"><div><p class="section-kicker">FORMULIR</p><h2 id="song-form-dialog-title">Lagu baru</h2></div><button id="close-song-form" class="song-form-dialog-close" type="button" aria-label="Tutup formulir">&#215;</button></header>
       <section class="card" aria-labelledby="song-detail-heading">
         <div class="section-heading">
           <div><p class="section-kicker">01 · INFORMASI</p><h2 id="song-detail-heading">Detail lagu baru</h2></div>
@@ -87,7 +100,7 @@
         <p class="format-tip">Penanda bagian bisa memakai Bahasa Indonesia atau Inggris. Baris chord dan lirik tidak dibungkus otomatis; geser mendatar di dalam editor atau bagian lagu untuk melihat baris panjang tanpa mengubah kesejajaran.</p>
       </section>
 
-      <section class="card" aria-labelledby="scores-heading">
+      <section class="card" id="temporary-edit-scores" aria-labelledby="scores-heading">
         <div class="section-heading">
           <div><p class="section-kicker">03 · PARTITUR</p><h2 id="scores-heading">Gambar berdasarkan instrumen</h2></div>
           <button class="button button-secondary" id="add-instrument" type="button"><span aria-hidden="true">＋</span> Tambah instrumen</button>
@@ -101,6 +114,14 @@
         <div class="form-actions"><button class="button button-secondary" id="cancel-edit-button" type="button" hidden>Batal edit</button><button class="button button-primary" id="submit-button" type="submit"><span>Simpan lagu</span><span aria-hidden="true">→</span></button></div>
       </div>
     </form>
+    </dialog>
+    <dialog id="temporary-delete-dialog" class="manager-delete-dialog" aria-labelledby="temporary-delete-title">
+      <section class="manager-delete-frame">
+        <header class="manager-delete-header"><div><p class="manager-delete-kicker">KONFIRMASI</p><h2 id="temporary-delete-title">Hapus lagu sementara?</h2></div><button id="close-temporary-delete" class="manager-delete-close" type="button" aria-label="Batal">&#215;</button></header>
+        <div class="manager-delete-body"><p id="temporary-delete-message"></p><div class="manager-delete-actions"><button id="cancel-temporary-delete" type="button">Batal</button><button id="confirm-temporary-delete" type="button">Hapus lagu</button></div></div>
+      </section>
+    </dialog>
+    <footer class="app-footer"><div class="app-credit"><img src="./icons/lagu-rohani-192.png" alt=""><span class="app-credit-name">Song Manager</span><span>Created by Riky Jo @2026</span></div></footer>
   </main>
   <template id="instrument-template">
     <div class="instrument-row">
@@ -146,6 +167,6 @@
     </section>
   </dialog>
   <!-- Apps Script hanya digunakan sebagai API penyimpanan. -->
-  <script src="script.js?v=instrument-dropdown-sheet-2" defer></script>
+  <script src="script.js?v=temporary-edit-1" defer></script>
 </body>
 </html>
