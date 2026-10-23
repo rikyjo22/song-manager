@@ -75,6 +75,8 @@
   let listCallbackCounter = 0;
   let instrumentCallbackCounter = 0;
   let isLoadingSavedSongs = false;
+  let queuedSavedSongsRefresh = false;
+  let queuedSavedSongsRefreshFresh = false;
   let availableInstrumentNames = [];
   const placeholderExample = '[Intro]\nG   D   Em\n(musik)\n\n[Bait 1]\nG       C\nKasih-Mu nyata\n\n[Reff]\nC   D   G\nKu memuji';
 
@@ -382,7 +384,11 @@
   }
 
   function loadSavedSongs(forceFresh = false) {
-    if (isLoadingSavedSongs) return;
+    if (isLoadingSavedSongs) {
+      queuedSavedSongsRefresh = true;
+      queuedSavedSongsRefreshFresh = queuedSavedSongsRefreshFresh || forceFresh;
+      return;
+    }
     isLoadingSavedSongs = true;
     managerListStatus.textContent = 'Memuat daftar lagu dari database…';
     setUpdateProgress('loading', 'Mengambil data dari database…');
@@ -400,6 +406,12 @@
       refreshButton.disabled = false;
       delete window.SongBookCallbacks[callbackName];
       script.remove();
+      if (queuedSavedSongsRefresh) {
+        const refreshFresh = queuedSavedSongsRefreshFresh;
+        queuedSavedSongsRefresh = false;
+        queuedSavedSongsRefreshFresh = false;
+        window.setTimeout(() => loadSavedSongs(refreshFresh), 0);
+      }
       if (error || !result || !result.ok) {
         const message = (error && error.message) || (result && result.error) || 'Periksa URL API dan akses deployment.';
         managerListStatus.textContent = `Daftar lagu gagal dimuat: ${message}`;
