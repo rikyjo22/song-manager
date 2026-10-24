@@ -10,6 +10,7 @@
 .song-content table{display:block;max-width:100%;overflow-x:auto}
 .song-content .song-line{display:grid;grid-template-columns:minmax(3.5rem,auto) minmax(0,1fr);gap:12px;align-items:baseline;margin:0 0 7px}
 .song-content .chord{color:#176b4b;font-family:'Courier New',monospace;font-weight:700}
+.song-section-body .chord-subscript{font-size:.68em;line-height:0;vertical-align:sub}
 .song-content .lyric{min-width:0}
 @media(max-width:540px){.song-content .song-line{grid-template-columns:minmax(0,1fr);gap:1px;margin-bottom:11px}.song-content .chord{font-size:12px}}
 .section-intro{margin:-12px 0 16px}

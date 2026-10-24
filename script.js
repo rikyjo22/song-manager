@@ -712,6 +712,76 @@
     return fragment;
   }
 
+  function managerChordParts(token) {
+    const number = token.match(/^([b#]?)([1-7])([b#]?)(13|11|9|7|M7|m7|M|m|sus[24]|o|\+|dim|aug)?(?:\/([b#]?[1-7]))?$/);
+    if (number) return { number, letter: null };
+    const letter = token.match(/^([A-G][#b]?)([^/]*)(?:\/([A-G][#b]?))?$/i);
+    if (!letter || (letter[2] && !/^(?:(?:maj|min|m|sus|dim|aug|add|omit|o|M|\+)?(?:2|4|5|6|7|9|11|13)?(?:sus[24])?(?:\([#b]?\d+\))?(?:[#b]?\d+)*)$/i.test(letter[2]))) return null;
+    return { number: null, letter: { root: letter[1], quality: letter[2], bass: letter[3] || '' } };
+  }
+
+  function managerNumberToLetter(match, key) {
+    const keyMatch = String(key || 'C').match(/^([A-G])([#b]?)(m)?/i) || ['C', 'C', '', ''];
+    const pitchMap = { C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, F: 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11 };
+    const keyRoot = `${keyMatch[1].toUpperCase()}${keyMatch[2] || ''}`;
+    const keyPitch = pitchMap[keyRoot] ?? 0;
+    const minor = Boolean(keyMatch[3]);
+    const scale = minor ? [0, 2, 3, 5, 7, 8, 10] : [0, 2, 4, 5, 7, 9, 11];
+    const flatKey = ['F', 'Bb', 'Eb', 'Ab', 'Db', 'Gb'].includes(keyRoot);
+    const noteNames = flatKey ? ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'] : ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const accidental = match[1] || match[3] || '';
+    const pitch = (keyPitch + scale[Number(match[2]) - 1] + (accidental === '#' ? 1 : accidental === 'b' ? -1 : 0) + 12) % 12;
+    const root = noteNames[pitch];
+    const aliases = { M: 'maj', m: 'm', o: 'dim', '+': 'aug' };
+    const quality = (match[4] || '').replace(/^(M|m|o|\+)/, (alias) => aliases[alias]);
+    let bass = '';
+    if (match[5]) {
+      const bassMatch = match[5].match(/^([b#]?)([1-7])$/);
+      const bassPitch = (keyPitch + scale[Number(bassMatch[2]) - 1] + (bassMatch[1] === '#' ? 1 : bassMatch[1] === 'b' ? -1 : 0) + 12) % 12;
+      bass = `/${noteNames[bassPitch]}`;
+    }
+    return `${root}${quality}${bass}`;
+  }
+
+  function renderPreviewChord(token, key) {
+    const parts = managerChordParts(token);
+    if (!parts) return document.createTextNode(token);
+    const chordText = parts.number ? managerNumberToLetter(parts.number, key) : `${parts.letter.root}${parts.letter.quality}${parts.letter.bass ? `/${parts.letter.bass}` : ''}`;
+    const chord = chordText.match(/^([A-G][#b]?)(.*?)(?:\/([A-G][#b]?))?$/i);
+    if (!chord) return document.createTextNode(chordText);
+    const quality = chord[2];
+    const suffix = quality.match(/^(13|11|9|7|sus[24])$/)?.[0] || '';
+    const fragment = document.createDocumentFragment();
+    fragment.append(document.createTextNode(chord[1]));
+    if (suffix) {
+      const subscript = document.createElement('sub');
+      subscript.className = 'chord-subscript';
+      subscript.textContent = suffix;
+      fragment.append(subscript, document.createTextNode(quality.slice(suffix.length)));
+    } else fragment.append(document.createTextNode(quality));
+    if (chord[3]) fragment.append(document.createTextNode(`/${chord[3]}`));
+    return fragment;
+  }
+
+  function formatPreviewChords(fragment, key) {
+    fragment.querySelectorAll('.song-section-body').forEach((body) => {
+      const rendered = document.createDocumentFragment();
+      body.textContent.split(/(\r?\n)/).forEach((line) => {
+        if (/^\r?\n$/.test(line) || !line.trim()) {
+          rendered.append(document.createTextNode(line));
+          return;
+        }
+        const tokens = line.trim().split(/\s+/);
+        if (!tokens.length || !tokens.every((token) => managerChordParts(token))) {
+          rendered.append(document.createTextNode(line));
+          return;
+        }
+        (line.match(/\s+|\S+/g) || []).forEach((part) => rendered.append(/^\s+$/.test(part) ? document.createTextNode(part) : renderPreviewChord(part, key)));
+      });
+      body.replaceChildren(rendered);
+    });
+  }
+
   function openSavedSongPreview(song) {
     previewScoreSong = song;
     previewZoom = 1;
@@ -729,6 +799,7 @@
     creditsElement.hidden = credits.length === 0;
     previewContent.replaceChildren();
     const fragment = safePreviewFragment(song.contentHtml);
+    formatPreviewChords(fragment, song.key || 'C');
     if (fragment.childNodes.length) previewContent.append(fragment);
     else {
       const empty = document.createElement('p');
