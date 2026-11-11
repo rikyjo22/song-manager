@@ -2,7 +2,7 @@
   'use strict';
 
   // Tempel URL Web App deployment Apps Script di antara tanda petik.
-  const API_URL = 'https://script.google.com/macros/s/AKfycbzOWUvFz1gSQQ9yLDXJiSEj0aOUlCjN_zlRrbk8-ZGe7lL6NZCxMimUDbKJ1SbZOhHq7g/exec';
+  const API_URL = 'https://script.google.com/macros/s/AKfycbzRzDZqxwH5V8DyAOFmiuFls_9T9vbY3Rs0agmAa2NQx2eTL5MLtwhzeemx8KfaDHMNcA/exec';
   const MANAGER_CACHE_KEY = 'song-manager:saved-songs:v1';
   const MANAGER_DELETED_IDS_KEY = 'song-manager:deleted-song-ids:v1';
   const MANAGER_RECENT_SONGS_KEY = 'song-manager:recent-songs:v1';
@@ -441,7 +441,11 @@
     script.onerror = () => finish(new Error('Tidak dapat mengakses API Apps Script.'));
     const url = new URL(API_URL);
     url.searchParams.set('action', 'songs');
-    if (forceFresh) url.searchParams.set('fresh', '1');
+    if (forceFresh) {
+      url.searchParams.set('fresh', '1');
+      // Also bypass browser and intermediary caches for this JSONP request.
+      url.searchParams.set('_refresh', callbackName);
+    }
     url.searchParams.set('callback', `SongBookCallbacks.${callbackName}`);
     script.src = url.toString();
     document.head.append(script);
@@ -1191,7 +1195,7 @@
     }
   });
 
-  document.getElementById('refresh-songs').addEventListener('click', loadSavedSongs);
+  document.getElementById('refresh-songs').addEventListener('click', () => loadSavedSongs(true));
   document.getElementById('refresh-temporary-songs').addEventListener('click', loadTemporarySongs);
   const migrateTemporarySongsButton = document.getElementById('migrate-temporary-songs');
   const cancelTemporaryMigrationButton = document.getElementById('cancel-temporary-migration');
