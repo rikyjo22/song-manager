@@ -26,6 +26,7 @@
   const managerLastUpdated = document.getElementById('manager-last-updated');
   const managerSearch = document.getElementById('manager-song-search');
   const managerCategoryFilters = document.getElementById('manager-category-filters');
+  const managerSortFilter = document.getElementById('manager-sort-filter');
   const managerUpdateProgress = document.getElementById('manager-update-progress');
   const managerProgressTrack = document.getElementById('manager-progress-track');
   const managerProgressLabel = document.getElementById('manager-progress-label');
@@ -55,6 +56,7 @@
   let editingTemporarySongId = '';
   let pendingTemporaryDeleteSong = null;
   let activeManagerCategory = 'ALL';
+  let activeManagerSort = 'RECENT';
   let pendingDeleteSong = null;
   let pendingDeleteButton = null;
   let managerDeleteSuccessMode = false;
@@ -589,11 +591,12 @@
 
   function renderSavedSongs() {
     const query = managerSearch.value.trim().toLocaleLowerCase('id').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    const visible = sortRecentlyChangedSongs(savedSongs.filter((song) => {
+    const filteredSongs = savedSongs.filter((song) => {
       if (activeManagerCategory !== 'ALL' && song.category !== activeManagerCategory) return false;
       const searchable = `${song.category} ${song.number} ${song.title} ${song.key || ''} ${song.genre || ''} ${song.songCreator || ''} ${song.dateCreate || ''} ${song.tempo || ''}`.toLocaleLowerCase('id').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       return searchable.includes(query);
-    }));
+    });
+    const visible = sortManagerSongs(filteredSongs);
     managerSongList.replaceChildren();
     managerSongList.style.maxHeight = '';
     if (!visible.length) {
@@ -652,6 +655,20 @@
       if (firstPosition < 0) return 1;
       if (secondPosition < 0) return -1;
       return firstPosition - secondPosition;
+    });
+  }
+
+  function sortManagerSongs(songs) {
+    if (activeManagerSort === 'RECENT') return sortRecentlyChangedSongs(songs);
+    const collator = new Intl.Collator('id', { numeric: true, sensitivity: 'base' });
+    const sortByNumber = activeManagerSort === 'NUMBER_ASC' || activeManagerSort === 'NUMBER_DESC';
+    const direction = activeManagerSort.endsWith('_DESC') ? -1 : 1;
+    return [...songs].sort((first, second) => {
+      const firstValue = sortByNumber ? first.number : first.title;
+      const secondValue = sortByNumber ? second.number : second.title;
+      const comparison = collator.compare(String(firstValue || ''), String(secondValue || ''));
+      if (comparison) return comparison * direction;
+      return collator.compare(String(first.title || ''), String(second.title || ''));
     });
   }
 
@@ -1249,6 +1266,10 @@
   });
   managerCategoryFilters.addEventListener('change', () => {
     activeManagerCategory = managerCategoryFilters.value;
+    renderSavedSongs();
+  });
+  managerSortFilter.addEventListener('change', () => {
+    activeManagerSort = managerSortFilter.value;
     renderSavedSongs();
   });
   temporaryCategoryFilters.addEventListener('change', () => {

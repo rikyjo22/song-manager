@@ -13,7 +13,7 @@
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
   <title>Song Manager</title>
   <!-- Frontend ini dimuat dari hosting/static server terpisah dari Apps Script. -->
-  <link rel="stylesheet" href="style.css?v=chord-preview-rules-1">
+  <link rel="stylesheet" href="style.css?v=manager-song-sort-1">
 </head>
 <body>
   <main class="page-shell">
@@ -29,7 +29,7 @@
           <p id="manager-last-updated" class="manager-last-updated" hidden></p>
         </div>
       </div>
-      <div class="manager-search-row"><label class="field song-search-field"><span>Cari lagu</span><input id="manager-song-search" type="search" placeholder="Cari judul, kategori, atau nomor"></label><select id="manager-category-filters" class="manager-category-filter" aria-label="Filter kategori lagu"><option value="ALL">Semua</option><option value="PS">Psallo</option><option value="NR">NR</option><option value="SP">Tambahan (SP)</option><option value="ZR">Zangkoor (ZR)</option><option value="KMR">Kaum Muda (KMR)</option><option value="SM">Sekolah Minggu (SM)</option><option value="OTH">Other (OTH)</option></select></div>
+      <div class="manager-search-row"><label class="field song-search-field"><span>Cari lagu</span><input id="manager-song-search" type="search" placeholder="Cari judul, kategori, atau nomor"></label><select id="manager-category-filters" class="manager-category-filter" aria-label="Filter kategori lagu"><option value="ALL">Semua</option><option value="PS">Psallo</option><option value="NR">NR</option><option value="SP">Tambahan (SP)</option><option value="ZR">Zangkoor (ZR)</option><option value="KMR">Kaum Muda (KMR)</option><option value="SM">Sekolah Minggu (SM)</option><option value="OTH">Other (OTH)</option></select><select id="manager-sort-filter" class="manager-category-filter" aria-label="Urutkan lagu"><option value="RECENT">Sort</option><option value="NUMBER_ASC">Nomor A-Z</option><option value="NUMBER_DESC">Nomor Z-A</option><option value="TITLE_ASC">Judul A-Z</option><option value="TITLE_DESC">Judul Z-A</option></select></div>
       <div id="manager-update-progress" class="manager-update-progress" hidden aria-live="polite">
         <div id="manager-progress-track" class="manager-progress-track" role="progressbar" aria-label="Pembaruan daftar lagu" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Menunggu data dari database"><span class="manager-progress-fill"></span></div>
         <span id="manager-progress-label" class="manager-progress-label"></span>
@@ -167,6 +167,6 @@
     </section>
   </dialog>
   <!-- Apps Script hanya digunakan sebagai API penyimpanan. -->
-  <script src="script.js?v=chord-preview-rules-1" defer></script>
+  <script src="script.js?v=manager-song-sort-1" defer></script>
 </body>
 </html>
