@@ -2,7 +2,7 @@
   'use strict';
 
   // Tempel URL Web App deployment Apps Script di antara tanda petik.
-  const API_URL = 'https://script.google.com/macros/s/AKfycbxtoAKUF9trCzK7lR_yDdnuFYGbU2AO83ZBRbKaJieyT0TxozCKc13r1xm1rkaYfIS5Eg/exec';
+  const API_URL = 'https://script.google.com/macros/s/AKfycbzIiL9D0EUy4-trC_cAmuD9LsVd4vqz5M3nATwJJSAR7ykl3fWx1fho_ZE-RJWNIKL9jw/exec';
   const MANAGER_CACHE_KEY = 'song-manager:saved-songs:v3';
   const MANAGER_DELETED_IDS_KEY = 'song-manager:deleted-song-ids:v1';
   const MANAGER_RECENT_SONGS_KEY = 'song-manager:recent-songs:v1';
