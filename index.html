@@ -13,7 +13,7 @@
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
   <title>Song Manager</title>
   <!-- Frontend ini dimuat dari hosting/static server terpisah dari Apps Script. -->
-  <link rel="stylesheet" href="style.css?v=manager-song-sort-1">
+  <link rel="stylesheet" href="style.css?v=manager-reference-youtube-17">
 </head>
 <body>
   <main class="page-shell">
@@ -82,6 +82,7 @@
           <label class="field"><span>Song-creator</span><input id="song-creator" type="text" placeholder="Nama pencipta lagu"></label>
           <label class="field"><span>Date Create</span><input id="date-create" type="text" inputmode="numeric" placeholder="Tahun, contoh: 1984"></label>
           <label class="field"><span>Tempo</span><input id="tempo" type="text" inputmode="decimal" placeholder="Contoh: 96 atau Allegro"></label>
+          <section class="field field-wide references-editor"><div class="references-editor-heading"><div><span>Referensi tambahan</span><small class="optional-hint">Tambahkan link atau file audio/video. File akan disimpan ke Google Drive.</small></div><button id="add-reference" class="button button-secondary" type="button">+ Tambah referensi</button></div><div id="references-list" class="references-list"></div></section>
         </div>
       </section>
 
@@ -103,7 +104,7 @@
       <section class="card" id="temporary-edit-scores" aria-labelledby="scores-heading">
         <div class="section-heading">
           <div><p class="section-kicker">03 · PARTITUR</p><h2 id="scores-heading">Gambar berdasarkan instrumen</h2></div>
-          <button class="button button-secondary" id="add-instrument" type="button"><span aria-hidden="true">＋</span> Tambah instrumen</button>
+          <button class="button button-secondary" id="add-instrument" type="button"><span aria-hidden="true">+</span> Tambah instrumen</button>
         </div>
         <p class="section-note upload-note">Opsional. Jika gambar dipilih, nama file dibuat dari kategori, nomor, judul, dan instrumen.</p>
         <div id="instrument-list" class="instrument-list"></div>
@@ -138,6 +139,7 @@
       <div class="file-list" aria-live="polite"></div>
     </div>
   </template>
+  <template id="reference-template"><div class="reference-row"><label class="field"><span>Nama referensi</span><input class="reference-name" type="text" maxlength="80" placeholder="Contoh: YouTube, Tenor, Sopran"></label><fieldset class="reference-kind"><legend>Sumber</legend><label><input class="reference-type-link" type="radio"> Link</label><label><input class="reference-type-file" type="radio"> File</label></fieldset><div class="field reference-link-field"><label><span>Link</span><input class="reference-url" type="url" inputmode="url" placeholder="https://..." autocomplete="url"></label><button class="reference-link-preview" type="button" hidden>Pratinjau YouTube</button></div><div class="field reference-file-field" hidden><span>File audio/video</span><input class="reference-file" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.wma,.mp4,.webm,.mov,.m4v,.ogv,.avi"><span class="reference-file-name"></span><button class="reference-file-preview" type="button" hidden>Pratinjau</button></div><button class="icon-button remove-reference" type="button" aria-label="Hapus referensi" title="Hapus referensi">×</button></div></template>
   <dialog id="manager-preview-dialog" class="manager-preview-dialog" aria-labelledby="manager-preview-title">
     <div class="manager-preview-frame">
       <header class="manager-preview-header">
@@ -153,13 +155,18 @@
         </div>
         <div id="manager-preview-pages" class="manager-preview-pages" hidden></div>
       </section>
-      <article id="manager-preview-content" class="manager-preview-content" tabindex="0" aria-label="Lirik dan chord lagu"></article>
+        <article id="manager-preview-content" class="manager-preview-content" tabindex="0" aria-label="Lirik dan chord lagu"></article>
+      <div id="manager-preview-actions" class="manager-preview-actions" hidden><button id="manager-reference-button" class="reference-button" type="button" hidden><span aria-hidden="true">▶</span> Referensi</button></div>
     </div>
   </dialog>
+  <div id="manager-reference-dialog" class="reference-dialog" hidden role="dialog" aria-modal="false" aria-labelledby="manager-reference-title">
+    <section class="reference-frame"><header class="reference-header"><h2 id="manager-reference-title">Referensi</h2><div id="manager-reference-tabs" class="reference-tabs" role="tablist" aria-label="Pilih referensi"></div><div id="manager-reference-loading" class="reference-loading" role="status" aria-live="polite" hidden><span class="reference-loading-spinner" aria-hidden="true"></span><span id="manager-reference-loading-text">Mengunduh referensi…</span></div><div class="reference-controls"><button id="manager-reference-minimize" class="reference-icon-button" type="button" aria-label="Tampilan ringkas" title="Tampilan ringkas" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path class="compact-icon-collapse" d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/><path class="compact-icon-expand" d="M8 3H3v5M3 3l6 6M16 3h5v5M21 3l-6 6M8 21H3v-5M3 21l6-6M16 21h5v-5M21 21l-6-6"/></svg></button><button id="manager-reference-play" class="reference-icon-button" type="button" aria-label="Putar" title="Putar">&#9654;</button><button id="manager-reference-pause" class="reference-icon-button" type="button" aria-label="Jeda" title="Jeda">&#10074;&#10074;</button><button id="manager-reference-stop" class="reference-icon-button" type="button" aria-label="Hentikan" title="Hentikan">&#9632;</button><button id="manager-reference-close" class="reference-icon-button" type="button" aria-label="Tutup referensi" title="Tutup">&#215;</button></div><div class="reference-cache-row"><span id="manager-reference-cache-usage" class="reference-cache-usage">Cache referensi: 0 MB</span><span id="manager-reference-cache-warning" class="reference-cache-warning" hidden>Cache referensi besar, pertimbangkan untuk membersihkannya.</span><button id="clear-manager-reference-cache" class="reference-icon-button reference-cache-clear" type="button" aria-label="Bersihkan data referensi" title="Bersihkan data referensi"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m3 14 9.6-9.6a2 2 0 0 1 2.8 0l4.2 4.2a2 2 0 0 1 0 2.8L10 21H7L3 17a2 2 0 0 1 0-3Z"/><path d="m8 9 7 7M10 21h11"/></svg></button></div><div class="reference-seek-row"><input id="manager-reference-seek" class="reference-seek" type="range" min="0" max="0" step="0.1" value="0" aria-label="Geser waktu referensi" disabled><output id="manager-reference-time" class="reference-time">0:00 / 0:00</output></div></header><div id="manager-reference-media" class="reference-media"></div></section>
+  </div>
   <dialog id="manager-score-image-dialog" class="manager-score-image-dialog" aria-label="Tampilan penuh partitur">
     <button id="close-manager-score-image" class="manager-score-image-close" type="button" aria-label="Tutup gambar">×</button>
     <img id="manager-score-image-full" alt="Partitur diperbesar">
   </dialog>
+  <dialog id="manager-reference-file-preview" class="manager-score-image-dialog reference-file-preview" aria-label="Pratinjau file referensi"><button id="close-manager-reference-preview" class="manager-score-image-close" type="button" aria-label="Tutup pratinjau">×</button><div id="manager-reference-preview-player"></div><p id="manager-reference-preview-name"></p></dialog>
   <dialog id="manager-delete-dialog" class="manager-delete-dialog" aria-labelledby="manager-delete-title">
     <section class="manager-delete-frame">
       <header class="manager-delete-header"><div><p class="manager-delete-kicker">KONFIRMASI</p><h2 id="manager-delete-title">Hapus lagu?</h2></div><button id="close-manager-delete" class="manager-delete-close" type="button" aria-label="Batal">×</button></header>
@@ -167,6 +174,6 @@
     </section>
   </dialog>
   <!-- Apps Script hanya digunakan sebagai API penyimpanan. -->
-  <script src="script.js?v=manager-song-sort-1" defer></script>
+  <script src="script.js?v=manager-reference-youtube-21" defer></script>
 </body>
 </html>

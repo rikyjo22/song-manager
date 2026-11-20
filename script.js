@@ -2,8 +2,8 @@
   'use strict';
 
   // Tempel URL Web App deployment Apps Script di antara tanda petik.
-  const API_URL = 'https://script.google.com/macros/s/AKfycbzRzDZqxwH5V8DyAOFmiuFls_9T9vbY3Rs0agmAa2NQx2eTL5MLtwhzeemx8KfaDHMNcA/exec';
-  const MANAGER_CACHE_KEY = 'song-manager:saved-songs:v1';
+  const API_URL = 'https://script.google.com/macros/s/AKfycbxtoAKUF9trCzK7lR_yDdnuFYGbU2AO83ZBRbKaJieyT0TxozCKc13r1xm1rkaYfIS5Eg/exec';
+  const MANAGER_CACHE_KEY = 'song-manager:saved-songs:v3';
   const MANAGER_DELETED_IDS_KEY = 'song-manager:deleted-song-ids:v1';
   const MANAGER_RECENT_SONGS_KEY = 'song-manager:recent-songs:v1';
   const CATEGORY_LABELS = { PS: 'Psallo', NR: 'Nyanyian Rohani', SP: 'Tambahan', ZR: 'Zangkoor', KMR: 'Kaum Muda', SM: 'Sekolah Minggu', OTH: 'Other' };
@@ -12,6 +12,11 @@
   let songFormPageScrollY = 0;
   const instrumentList = document.getElementById('instrument-list');
   const template = document.getElementById('instrument-template');
+  const referenceList = document.getElementById('references-list');
+  const referenceTemplate = document.getElementById('reference-template');
+  let referenceRowCounter = 0;
+  let managerFormReferencePreviewRequestId = 0;
+  let managerFormReferencePreviewObjectUrl = '';
   const status = document.getElementById('form-status');
   const submitButton = document.getElementById('submit-button');
   const songInput = document.getElementById('song-content-input');
@@ -158,6 +163,179 @@
     instrumentList.append(row);
     if (shouldFocus) nameSelect.focus();
   }
+
+  function addReference(reference = {}) {
+    const row = referenceTemplate.content.firstElementChild.cloneNode(true);
+    const rowId = `manager-reference-${++referenceRowCounter}`;
+    const linkRadio = row.querySelector('.reference-type-link');
+    const fileRadio = row.querySelector('.reference-type-file');
+    linkRadio.name = fileRadio.name = rowId;
+    const isFile = reference.type === 'file';
+    linkRadio.checked = !isFile;
+    fileRadio.checked = isFile;
+    row.querySelector('.reference-name').value = reference.name || '';
+    row.querySelector('.reference-url').value = reference.type === 'link' ? (reference.url || '') : '';
+    row.dataset.existingReference = JSON.stringify(isFile && reference.id ? reference : null);
+    const linkField = row.querySelector('.reference-link-field');
+    const fileField = row.querySelector('.reference-file-field');
+    const linkPreviewButton = row.querySelector('.reference-link-preview');
+    const fileName = row.querySelector('.reference-file-name');
+    const previewButton = row.querySelector('.reference-file-preview');
+    const updateType = () => {
+      linkField.hidden = !linkRadio.checked;
+      fileField.hidden = !fileRadio.checked;
+      row.querySelector('.reference-url').required = linkRadio.checked && Boolean(row.querySelector('.reference-name').value.trim());
+      row.querySelector('.reference-file').required = fileRadio.checked && !JSON.parse(row.dataset.existingReference || 'null');
+      linkPreviewButton.hidden = !linkRadio.checked || !isSupportedYouTubeReference(row.querySelector('.reference-url').value.trim());
+    };
+    const nameInput = row.querySelector('.reference-name');
+    const ensureNextRow = () => {
+      if (nameInput.value.trim() && row === referenceList.lastElementChild) addReference();
+    };
+    nameInput.addEventListener('input', () => { updateType(); ensureNextRow(); });
+    row.querySelector('.reference-url').addEventListener('input', updateType);
+    row.querySelector('.reference-url').addEventListener('change', ensureNextRow);
+    linkPreviewButton.addEventListener('click', () => {
+      const url = row.querySelector('.reference-url').value.trim();
+      if (!isSupportedYouTubeReference(url)) return;
+      const name = nameInput.value.trim() || 'YouTube';
+      openManagerReference([{ name, type: 'link', url }], name);
+    });
+    linkRadio.addEventListener('change', updateType);
+    fileRadio.addEventListener('change', updateType);
+    const existing = isFile && reference.id ? reference : null;
+    if (existing) {
+      fileName.textContent = existing.fileName || existing.name || 'File tersimpan';
+      previewButton.hidden = false;
+    }
+    row.querySelector('.reference-file').addEventListener('change', (event) => {
+      const file = event.currentTarget.files?.[0];
+      const old = JSON.parse(row.dataset.existingReference || 'null');
+      if (!file) return;
+      row.dataset.existingReference = 'null';
+      fileName.textContent = file.name;
+      previewButton.hidden = false;
+      previewButton.dataset.previewUrl = URL.createObjectURL(file);
+      previewButton.dataset.previewMime = file.type || '';
+      previewButton.dataset.previewName = file.name;
+      if (old?.id) row.dataset.replacedReferenceId = old.id;
+      ensureNextRow();
+    });
+    row.querySelector('.remove-reference').addEventListener('click', () => row.remove());
+    referenceList.append(row);
+    updateType();
+    return row;
+  }
+
+  function populateReferences(references, legacyUrl = '') {
+    referenceList.replaceChildren();
+    const list = Array.isArray(references) ? references : [];
+    if (list.length) list.forEach((reference) => addReference(reference));
+    if (legacyUrl && !list.some((reference) => reference?.url === legacyUrl)) addReference({ name: 'YouTube', type: 'link', url: legacyUrl });
+  }
+
+  async function collectReferences() {
+    const references = [];
+    for (const row of referenceList.querySelectorAll('.reference-row')) {
+      const name = row.querySelector('.reference-name').value.trim();
+      const isLink = row.querySelector('.reference-type-link').checked;
+      const url = row.querySelector('.reference-url').value.trim();
+      const file = row.querySelector('.reference-file').files?.[0];
+      const existing = JSON.parse(row.dataset.existingReference || 'null');
+      if (!name && !url && !file && !existing) continue;
+      if (!name) throw new Error('Isi nama untuk setiap referensi.');
+      if (isLink) {
+        if (!/^https?:\/\//i.test(url)) throw new Error(`Link referensi “${name}” harus diawali http:// atau https://.`);
+        references.push({ name, type: 'link', url });
+      } else if (file) {
+        const allowedMedia = file.type.startsWith('audio/') || file.type.startsWith('video/') || /\.(mp3|wav|m4a|aac|flac|ogg|oga|opus|wma|mp4|m4v|mov|webm|ogv|avi)$/i.test(file.name);
+        if (!allowedMedia) throw new Error(`File referensi “${name}” harus berupa audio atau video.`);
+        if (file.size > 25 * 1024 * 1024) throw new Error(`Ukuran file referensi “${name}” maksimal 25 MB.`);
+        references.push({ name, type: 'file', file: await readFile(file) });
+      } else if (existing?.id) {
+        references.push({ ...existing, name, type: 'file' });
+      } else {
+        throw new Error(`Pilih file audio atau video untuk referensi “${name}”.`);
+      }
+    }
+    return references;
+  }
+
+  async function downloadManagerReferenceFile(reference, fileId) {
+    return getManagerReferenceMediaBlob(reference, String(fileId));
+  }
+
+  async function previewReferenceFile(row, targetDialogId, playerId, nameId) {
+    const button = row.querySelector('.reference-file-preview');
+    const selectedFile = row.querySelector('.reference-file').files?.[0];
+    const existing = JSON.parse(row.dataset.existingReference || 'null');
+    let url = button.dataset.previewUrl || '';
+    const needsDriveDownload = !url && !selectedFile && existing?.id;
+    if (!url && !selectedFile && !needsDriveDownload) return;
+    const mimeType = button.dataset.previewMime || selectedFile?.type || existing?.mimeType || '';
+    const name = button.dataset.previewName || selectedFile?.name || existing?.fileName || existing?.name || 'Referensi';
+    const host = document.getElementById(playerId);
+    const previewDialog = document.getElementById(targetDialogId);
+    const requestId = ++managerFormReferencePreviewRequestId;
+    if (managerFormReferencePreviewObjectUrl) URL.revokeObjectURL(managerFormReferencePreviewObjectUrl);
+    managerFormReferencePreviewObjectUrl = '';
+    host.replaceChildren();
+    let loading = document.getElementById('manager-reference-preview-loading');
+    if (!loading) {
+      loading = document.createElement('div');
+      loading.id = 'manager-reference-preview-loading';
+      loading.className = 'reference-loading';
+      loading.setAttribute('role', 'status');
+      loading.setAttribute('aria-live', 'polite');
+      loading.innerHTML = '<span class="reference-loading-spinner" aria-hidden="true"></span><span></span>';
+      host.before(loading);
+    }
+    const loadingText = loading.querySelector('span:last-child');
+    loading.hidden = !needsDriveDownload;
+    loading.querySelector('.reference-loading-spinner').hidden = !needsDriveDownload;
+    loadingText.textContent = 'Mengunduh referensi…';
+    document.getElementById(nameId).textContent = name;
+    if (!previewDialog.open) previewDialog.showModal();
+    if (needsDriveDownload) {
+      button.disabled = true;
+      try {
+        const blob = await downloadManagerReferenceFile({ ...existing, type: 'file', url: existing.url || '' }, String(existing.id));
+        if (requestId !== managerFormReferencePreviewRequestId) return;
+        managerFormReferencePreviewObjectUrl = URL.createObjectURL(blob);
+        url = managerFormReferencePreviewObjectUrl;
+      } catch (error) {
+        if (requestId === managerFormReferencePreviewRequestId) {
+          loading.querySelector('.reference-loading-spinner').hidden = true;
+          loadingText.textContent = /Aksi tidak dikenali:\s*getReferenceMedia/i.test(error.message || '')
+            ? 'Backend Apps Script belum diperbarui. Deploy code.gs sebagai New version.'
+            : `File referensi gagal dimuat: ${error.message || 'coba perbarui daftar dan ulangi.'}`;
+        }
+        return;
+      } finally {
+        button.disabled = false;
+      }
+    }
+    if (requestId !== managerFormReferencePreviewRequestId) return;
+    const isAudio = mimeType.startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|ogg|oga|opus|wma)$/i.test(name);
+    const player = document.createElement(isAudio ? 'audio' : 'video');
+    player.controls = true;
+    player.src = url || URL.createObjectURL(selectedFile);
+    if (player.tagName === 'VIDEO') player.playsInline = true;
+    player.addEventListener('error', () => {
+      if (requestId !== managerFormReferencePreviewRequestId) return;
+      loading.hidden = false;
+      loading.querySelector('.reference-loading-spinner').hidden = true;
+      loadingText.textContent = `File referensi tidak didukung (kode ${player.error?.code || '?'})`;
+    }, { once: true });
+    host.append(player);
+    loading.hidden = true;
+  }
+
+  referenceList.addEventListener('click', (event) => {
+    const button = event.target.closest('.reference-file-preview');
+    if (button) previewReferenceFile(button.closest('.reference-row'), 'manager-reference-file-preview', 'manager-reference-preview-player', 'manager-reference-preview-name');
+  });
+  document.getElementById('add-reference').addEventListener('click', () => addReference());
 
   function appendInstrumentFileInput(row) {
     const input = document.createElement('input');
@@ -348,6 +526,8 @@
   }
 
   async function collectPayload() {
+    const references = await collectReferences();
+    const referenceUrl = references.find((reference) => reference.type === 'link' && isSupportedYouTubeReference(reference.url))?.url || '';
     const instruments = {};
     const instrumentNames = [];
     const instrumentRenames = [];
@@ -376,6 +556,8 @@
       songCreator: document.getElementById('song-creator').value.trim(),
       dateCreate: document.getElementById('date-create').value.trim(),
       tempo: document.getElementById('tempo').value.trim(),
+      referenceUrl,
+      references,
       contentHtml: getContentHtml(),
       id: editingSongId,
       action: editingSongId ? 'update' : 'create',
@@ -818,6 +1000,12 @@
     const creditsElement = document.getElementById('manager-preview-credits');
     creditsElement.textContent = credits.join(' · ');
     creditsElement.hidden = credits.length === 0;
+    const songReferences = Array.isArray(song.references) ? [...song.references] : [];
+    if (song.referenceUrl && !songReferences.some((reference) => reference?.url === song.referenceUrl)) songReferences.push({ name: 'YouTube', type: 'link', url: song.referenceUrl });
+    const referenceButton = document.getElementById('manager-reference-button');
+    referenceButton.hidden = !songReferences.length;
+    referenceButton.dataset.references = JSON.stringify(songReferences);
+    document.getElementById('manager-preview-actions').hidden = referenceButton.hidden;
     previewContent.replaceChildren();
     const fragment = safePreviewFragment(song.contentHtml);
     formatPreviewChords(fragment, song.key || 'C');
@@ -836,6 +1024,569 @@
     document.body.classList.add('manager-preview-open');
     scheduleManagerPreviewFit();
     document.getElementById('close-manager-preview').focus();
+  }
+
+  let managerReferencePopupOpen = false;
+  let activeManagerReferenceCacheIds = new Set();
+  let managerReferenceDownloadCount = 0;
+  let managerReferenceDownloadProgress = null;
+  let managerReferenceProgressEstimateTimer = 0;
+  let managerReferenceCacheClearGeneration = 0;
+  let currentManagerReferenceFileSize = null;
+  let currentManagerReferenceIsStreaming = false;
+  const managerReferenceMediaRequests = new Map();
+  const REFERENCE_CACHE_DB = 'psallo-reference-media-v1';
+  const REFERENCE_CACHE_STORE = 'media';
+  const REFERENCE_CACHE_WARNING_AT = 300 * 1024 * 1024;
+  function updateManagerReferenceLoading(delta) {
+    const previousCount = managerReferenceDownloadCount;
+    managerReferenceDownloadCount = Math.max(0, managerReferenceDownloadCount + delta);
+    if (previousCount === 0 && managerReferenceDownloadCount > 0) managerReferenceDownloadProgress = 0;
+    if (managerReferenceDownloadCount === 0) {
+      window.clearInterval(managerReferenceProgressEstimateTimer);
+      managerReferenceProgressEstimateTimer = 0;
+      managerReferenceDownloadProgress = null;
+    }
+    const indicator = document.getElementById('manager-reference-loading');
+    if (!indicator) return;
+    indicator.hidden = managerReferenceDownloadCount === 0;
+    const label = document.getElementById('manager-reference-loading-text');
+    const countLabel = managerReferenceDownloadCount > 1 ? ` ${managerReferenceDownloadCount} referensi` : ' referensi';
+    const message = managerReferenceDownloadCount ? `Mengunduh${countLabel}…${managerReferenceDownloadProgress === null ? '' : ` ${managerReferenceDownloadProgress}%`}` : 'Mengunduh referensi…';
+    label.textContent = message;
+    const formLoading = document.getElementById('manager-reference-preview-loading');
+    if (formLoading && document.getElementById('manager-reference-file-preview')?.open) {
+      formLoading.hidden = managerReferenceDownloadCount === 0;
+      formLoading.querySelector('span:last-child').textContent = message;
+    }
+  }
+  function updateManagerReferenceLoadingProgress(percent) {
+    if (!managerReferenceDownloadCount) return;
+    window.clearInterval(managerReferenceProgressEstimateTimer);
+    managerReferenceProgressEstimateTimer = 0;
+    managerReferenceDownloadProgress = Math.max(managerReferenceDownloadProgress || 0, Math.max(0, Math.min(100, Math.floor(percent))));
+    updateManagerReferenceLoading(0);
+  }
+  function resetManagerReferenceLoadingProgress() {
+    window.clearInterval(managerReferenceProgressEstimateTimer);
+    managerReferenceProgressEstimateTimer = 0;
+    managerReferenceDownloadProgress = 0;
+    updateManagerReferenceLoading(0);
+  }
+  function estimateManagerReferenceLoadingProgress(targetPercent) {
+    window.clearInterval(managerReferenceProgressEstimateTimer);
+    const target = Math.max(managerReferenceDownloadProgress || 0, Math.min(99, Math.floor(targetPercent)));
+    managerReferenceProgressEstimateTimer = window.setInterval(() => {
+      if (!managerReferenceDownloadCount || managerReferenceDownloadProgress >= target) {
+        window.clearInterval(managerReferenceProgressEstimateTimer);
+        managerReferenceProgressEstimateTimer = 0;
+        return;
+      }
+      managerReferenceDownloadProgress += 1;
+      updateManagerReferenceLoading(0);
+    }, 20);
+  }
+  function openManagerReferenceCacheDb() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(REFERENCE_CACHE_DB, 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains(REFERENCE_CACHE_STORE)) request.result.createObjectStore(REFERENCE_CACHE_STORE, { keyPath: 'fileId' });
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error('Penyimpanan referensi tidak tersedia.'));
+    });
+  }
+  async function readManagerReferenceCache(fileId) {
+    const db = await openManagerReferenceCacheDb();
+    return new Promise((resolve, reject) => {
+      const request = db.transaction(REFERENCE_CACHE_STORE, 'readonly').objectStore(REFERENCE_CACHE_STORE).get(String(fileId));
+      request.onsuccess = () => { db.close(); resolve(request.result || null); };
+      request.onerror = () => { db.close(); reject(request.error); };
+    });
+  }
+  async function listManagerReferenceCache() {
+    const db = await openManagerReferenceCacheDb();
+    return new Promise((resolve, reject) => {
+      const request = db.transaction(REFERENCE_CACHE_STORE, 'readonly').objectStore(REFERENCE_CACHE_STORE).getAll();
+      request.onsuccess = () => { db.close(); resolve(request.result || []); };
+      request.onerror = () => { db.close(); reject(request.error); };
+    });
+  }
+  function formatManagerReferenceCacheSize(bytes) {
+    if (!bytes) return '0 MB';
+    if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  }
+  async function updateManagerReferenceCacheUsage() {
+    const usage = document.getElementById('manager-reference-cache-usage');
+    const warning = document.getElementById('manager-reference-cache-warning');
+    if (!usage || !warning) return;
+    try {
+      const entries = await listManagerReferenceCache();
+      const total = entries.reduce((sum, entry) => sum + (entry.blob instanceof Blob ? entry.blob.size : 0), 0);
+      const currentSize = currentManagerReferenceFileSize === null ? (currentManagerReferenceIsStreaming ? 'Streaming' : '—') : formatManagerReferenceCacheSize(currentManagerReferenceFileSize);
+      usage.textContent = `${currentSize} / ${formatManagerReferenceCacheSize(total)}`;
+      usage.title = 'Ukuran referensi yang diputar / total cache Referensi tersimpan';
+      warning.hidden = total < REFERENCE_CACHE_WARNING_AT;
+    } catch (error) {
+      usage.textContent = 'Cache referensi: tidak dapat dibaca';
+      warning.hidden = true;
+    }
+  }
+  async function writeManagerReferenceCache(entry) {
+    const db = await openManagerReferenceCacheDb();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(REFERENCE_CACHE_STORE, 'readwrite');
+      transaction.objectStore(REFERENCE_CACHE_STORE).put(entry);
+      transaction.oncomplete = () => { db.close(); resolve(); };
+      transaction.onerror = () => { db.close(); reject(transaction.error); };
+      transaction.onabort = () => { db.close(); reject(transaction.error || new Error('Penyimpanan referensi penuh.')); };
+    });
+  }
+  async function clearAllManagerReferenceCache() {
+    const db = await openManagerReferenceCacheDb();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(REFERENCE_CACHE_STORE, 'readwrite');
+      const request = transaction.objectStore(REFERENCE_CACHE_STORE).openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        const entry = cursor.value;
+        if (entry && entry.fileId && entry.blob instanceof Blob) cursor.delete();
+        cursor.continue();
+      };
+      transaction.oncomplete = () => { db.close(); resolve(); };
+      transaction.onerror = () => { db.close(); reject(transaction.error); };
+      transaction.onabort = () => { db.close(); reject(transaction.error || new Error('Cache referensi gagal dibersihkan.')); };
+    });
+  }
+  async function getManagerReferenceMediaBlob(reference, fileId) {
+    try {
+      const cached = await readManagerReferenceCache(fileId);
+      if (cached && cached.blob instanceof Blob) {
+        cached.deleteAfter = 0;
+        cached.lastAccessAt = Date.now();
+        await writeManagerReferenceCache(cached);
+        void updateManagerReferenceCacheUsage();
+        return cached.blob;
+      }
+    } catch (error) {}
+    if (managerReferenceMediaRequests.has(fileId)) return managerReferenceMediaRequests.get(fileId);
+    updateManagerReferenceLoading(1);
+    const cacheGeneration = managerReferenceCacheClearGeneration;
+    const request = (async () => {
+      try {
+        const decode = (base64) => {
+          const binary = atob(base64 || '');
+          const bytes = new Uint8Array(binary.length);
+          for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+          return bytes;
+        };
+        const downloadDirectlyFromDrive = async (totalBytes, mimeType) => {
+          const sourceUrl = reference.url || `https://drive.google.com/open?id=${encodeURIComponent(fileId)}`;
+          const response = await fetch(referenceMediaUrl(sourceUrl), { mode: 'cors', credentials: 'omit', cache: 'no-store' });
+          if (!response.ok || !response.body) throw new Error('Browser tidak dapat mengakses file Drive langsung.');
+          if ((response.headers.get('content-type') || '').toLowerCase().includes('text/html')) throw new Error('Drive mengembalikan halaman web, bukan file media.');
+          const reader = response.body.getReader();
+          const chunks = [];
+          let received = 0;
+          try {
+            while (true) {
+              const part = await reader.read();
+              if (part.done) break;
+              if (!part.value?.length) continue;
+              chunks.push(part.value);
+              received += part.value.length;
+              if (totalBytes > 0) updateManagerReferenceLoadingProgress(received / totalBytes * 100);
+            }
+          } catch (error) {
+            await reader.cancel().catch(() => {});
+            throw error;
+          }
+          if (totalBytes > 0 && received !== totalBytes) throw new Error('Ukuran unduhan Drive tidak sesuai dengan ukuran file.');
+          return new Blob(chunks, { type: mimeType || 'application/octet-stream' });
+        };
+        const downloadViaAppsScriptChunks = async (firstResult, totalBytesHint) => {
+          const chunkSize = 4 * 1024 * 1024;
+          if (!firstResult && totalBytesHint > 0) estimateManagerReferenceLoadingProgress(Math.min(99, chunkSize / totalBytesHint * 100));
+          let result = firstResult || await postToAppsScript({ action: 'getReferenceMedia', clientApp: 'song-manager', fileId, offset: 0, chunkSize });
+          let bytes = decode(result.base64);
+          const totalBytes = Number(result.totalBytes);
+          if (!Number.isFinite(totalBytes) || totalBytes <= 0) {
+            updateManagerReferenceLoadingProgress(100);
+            return bytes;
+          }
+          const fullBytes = new Uint8Array(totalBytes);
+          fullBytes.set(bytes, Number(result.offset) || 0);
+          let received = bytes.length;
+          updateManagerReferenceLoadingProgress(received / totalBytes * 100);
+          while (received < totalBytes) {
+            estimateManagerReferenceLoadingProgress(Math.min(99, (received + Math.min(chunkSize, totalBytes - received)) / totalBytes * 100));
+            result = await postToAppsScript({ action: 'getReferenceMedia', clientApp: 'song-manager', fileId, offset: received, chunkSize });
+            bytes = decode(result.base64);
+            if (!bytes.length) throw new Error('Unduhan Referensi terputus sebelum selesai.');
+            fullBytes.set(bytes, Number(result.offset) || received);
+            received += bytes.length;
+            updateManagerReferenceLoadingProgress(received / totalBytes * 100);
+          }
+          return fullBytes;
+        };
+        const metadata = await postToAppsScript({ action: 'getReferenceMedia', clientApp: 'song-manager', fileId, metadataOnly: true });
+        const metadataBytes = metadata.base64 ? decode(metadata.base64) : null;
+        const metadataTotalBytes = Number(metadata.totalBytes);
+        const metadataHasWholeFile = metadataBytes && (!Number.isFinite(metadataTotalBytes) || metadataTotalBytes <= 0 || metadataBytes.length === metadataTotalBytes);
+        let blob;
+        if (metadataHasWholeFile) {
+          blob = new Blob([metadataBytes], { type: metadata.mimeType || reference.mimeType || 'application/octet-stream' });
+          updateManagerReferenceLoadingProgress(100);
+        } else {
+          try {
+            blob = await downloadDirectlyFromDrive(Number(metadata.totalBytes) || 0, metadata.mimeType);
+          } catch (error) {
+            resetManagerReferenceLoadingProgress();
+            blob = new Blob([await downloadViaAppsScriptChunks(metadata.base64 ? metadata : null, Number(metadata.totalBytes))], { type: metadata.mimeType || reference.mimeType || 'application/octet-stream' });
+          }
+        }
+        try {
+          if (cacheGeneration === managerReferenceCacheClearGeneration) await writeManagerReferenceCache({ fileId, fileName: metadata.fileName || reference.fileName || reference.name || '', mimeType: blob.type, blob, lastAccessAt: Date.now(), deleteAfter: 0 });
+          void updateManagerReferenceCacheUsage();
+        } catch (error) {}
+        return blob;
+      } finally {
+        updateManagerReferenceLoading(-1);
+      }
+    })();
+    managerReferenceMediaRequests.set(fileId, request);
+    try { return await request; }
+    finally { managerReferenceMediaRequests.delete(fileId); }
+  }
+  async function preloadManagerReferenceMedia(references) {
+    for (const reference of references) {
+      const fileId = reference && (reference.id || referenceDriveFileId(reference.url || ''));
+      if (!fileId) continue;
+      try { await getManagerReferenceMediaBlob(reference, String(fileId)); } catch (error) { console.warn('Referensi Drive gagal disimpan di cache browser:', error.message || error); }
+    }
+  }
+
+  let managerReferenceMedia = null;
+  let managerReferenceEmbed = false;
+  let managerReferenceEmbedPlaying = false;
+  let managerReferenceOpenRequestId = 0;
+  let managerReferencePlaybackRequestId = 0;
+  let managerReferenceDriveObjectUrl = '';
+  const managerReferenceSeek = document.getElementById('manager-reference-seek');
+  const managerReferenceTime = document.getElementById('manager-reference-time');
+  let managerReferenceSeekDuration = 0;
+  let managerReferenceSeekInProgress = false;
+  let managerReferenceSeekPoll = 0;
+  function formatManagerReferenceTime(value) {
+    const seconds = Math.max(0, Math.floor(Number(value) || 0));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainder = String(seconds % 60).padStart(2, '0');
+    return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${remainder}` : `${minutes}:${remainder}`;
+  }
+  function updateManagerReferenceSeek(currentTime, duration) {
+    const safeDuration = Number.isFinite(Number(duration)) && Number(duration) > 0 ? Number(duration) : 0;
+    const safeTime = Number.isFinite(Number(currentTime)) ? Math.max(0, Number(currentTime)) : 0;
+    managerReferenceSeekDuration = safeDuration;
+    managerReferenceSeek.disabled = !managerReferenceMedia || !safeDuration;
+    managerReferenceSeek.max = String(safeDuration || 0);
+    if (managerReferenceSeekInProgress) return;
+    managerReferenceSeek.value = String(Math.min(safeTime, safeDuration || safeTime));
+    managerReferenceTime.textContent = `${formatManagerReferenceTime(safeTime)} / ${formatManagerReferenceTime(safeDuration)}`;
+  }
+  function requestManagerReferenceEmbedSeek() {
+    if (!managerReferenceEmbed || !managerReferenceMedia) return;
+    managerReferenceMedia.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'getCurrentTime', args: [] }), '*');
+    managerReferenceMedia.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'getDuration', args: [] }), '*');
+  }
+  function bindManagerReferenceNativeSeek(media) {
+    const sync = () => updateManagerReferenceSeek(media.currentTime, media.duration);
+    ['loadedmetadata', 'durationchange', 'timeupdate', 'seeked'].forEach((eventName) => media.addEventListener(eventName, sync));
+    sync();
+  }
+  managerReferenceSeek.addEventListener('input', () => {
+    managerReferenceSeekInProgress = true;
+    managerReferenceTime.textContent = `${formatManagerReferenceTime(managerReferenceSeek.value)} / ${formatManagerReferenceTime(managerReferenceSeekDuration)}`;
+  });
+  managerReferenceSeek.addEventListener('change', () => {
+    const targetTime = Math.max(0, Number(managerReferenceSeek.value) || 0);
+    managerReferenceSeekInProgress = false;
+    if (managerReferenceEmbed && managerReferenceMedia) managerReferenceMedia.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [targetTime, true] }), '*');
+    else if (managerReferenceMedia) managerReferenceMedia.currentTime = targetTime;
+    updateManagerReferenceSeek(targetTime, managerReferenceSeekDuration);
+  });
+  window.addEventListener('message', (event) => {
+    if (!managerReferenceEmbed || !managerReferenceMedia || event.source !== managerReferenceMedia.contentWindow) return;
+    try {
+      const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      const info = data?.info || {};
+      const state = Number(info.playerState);
+      if (data?.event === 'onError') {
+        const code = Number(data.info);
+        const pageProtocol = location.protocol;
+        const hasWebOrigin = pageProtocol === 'https:' || pageProtocol === 'http:';
+        managerReferenceTime.textContent = code === 153
+          ? (hasWebOrigin
+            ? `YouTube (153): permintaan iframe tidak menerima Referer dari ${location.origin}. Buka halaman HTTPS di browser biasa; hosting atau preview yang digunakan mungkin menghapus Referer.`
+            : `YouTube (153): halaman berjalan dengan protokol ${pageProtocol}, yang tidak dapat mengirim Referer HTTP. Gunakan URL HTTPS yang dipublikasikan, bukan file lokal atau VS Code Preview.`)
+          : `YouTube gagal memutar video (kode ${code || '?'}). Pastikan video tersedia untuk diputar di situs lain.`;
+        return;
+      }
+      if (data?.event === 'infoDelivery') {
+        if (Number.isFinite(state)) managerReferenceEmbedPlaying = state === 1;
+        const currentTime = Number(info.currentTime);
+        const duration = Number(info.duration);
+        if (Number.isFinite(currentTime) || Number.isFinite(duration)) updateManagerReferenceSeek(Number.isFinite(currentTime) ? currentTime : managerReferenceSeek.value, Number.isFinite(duration) ? duration : managerReferenceSeekDuration);
+      }
+    } catch (error) {}
+  });
+  function referenceDriveFileId(url) {
+    try {
+      const parsed = new URL(String(url || '').trim());
+      const host = parsed.hostname.toLowerCase();
+      if (host !== 'drive.google.com' && !host.endsWith('.drive.google.com') && host !== 'drive.usercontent.google.com') return '';
+      return parsed.searchParams.get('id') || parsed.pathname.match(/\/(?:file\/d|uc)\/([^/?]+)/i)?.[1] || '';
+    } catch (error) { return ''; }
+  }
+  function referenceMediaUrl(url) {
+    const fileId = referenceDriveFileId(url);
+    if (!fileId) return String(url || '').trim();
+    const resourceKey = new URL(String(url).trim()).searchParams.get('resourcekey');
+    return `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=download&confirm=t${resourceKey ? `&resourcekey=${encodeURIComponent(resourceKey)}` : ''}`;
+  }
+  async function driveReferenceMediaType(url) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 4000);
+    try {
+      const response = await fetch(referenceMediaUrl(url), { method: 'HEAD', mode: 'cors', signal: controller.signal });
+      const contentType = (response.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
+      if (response.ok && contentType.startsWith('audio/')) return 'audio';
+      if (response.ok && contentType.startsWith('video/')) return 'video';
+    } catch (error) {
+    } finally {
+      window.clearTimeout(timeout);
+    }
+    return '';
+  }
+  function referenceMediaType(url) {
+    const value = String(url || '').trim();
+    if (/^(?:https?:\/\/)?(?:[\w-]+\.)?(?:youtube\.com|youtu\.be|vimeo\.com)\//i.test(value)) return 'embed';
+    if (referenceDriveFileId(value)) return 'drive';
+    const path = (() => { try { return new URL(value).pathname.toLowerCase(); } catch (error) { return value.toLowerCase(); } })();
+    if (/\.(?:mp3|wav|m4a|aac|flac|ogg|oga|opus|wma)(?:$|[?#])/i.test(path)) return 'audio';
+    if (/\.(?:mp4|m4v|mov|webm|ogv|avi)(?:$|[?#])/i.test(path)) return 'video';
+    return 'external';
+  }
+  function isSupportedYouTubeReference(url) {
+    return Boolean(youtubeReferenceVideoId(url));
+  }
+  function youtubeReferenceVideoId(url) {
+    try {
+      const parsed = new URL(String(url || '').trim());
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return '';
+      const hostname = parsed.hostname.toLowerCase();
+      if (hostname === 'youtu.be' || hostname.endsWith('.youtu.be')) return parsed.pathname.split('/').filter(Boolean)[0] || '';
+      if (hostname !== 'youtube.com' && !hostname.endsWith('.youtube.com')) return '';
+      return parsed.searchParams.get('v') || parsed.pathname.match(/\/(?:embed|shorts|live)\/([^/?]+)/i)?.[1] || '';
+    } catch (error) { return ''; }
+  }
+  function referenceEmbedUrl(url) {
+    const value = String(url || '').trim();
+    try {
+      const parsed = new URL(value);
+      const hostname = parsed.hostname.toLowerCase();
+      let videoId = '';
+      if (hostname === 'youtu.be' || hostname.endsWith('.youtu.be')) videoId = parsed.pathname.split('/').filter(Boolean)[0] || '';
+      else if (hostname === 'youtube.com' || hostname.endsWith('.youtube.com')) {
+        videoId = parsed.searchParams.get('v') || parsed.pathname.match(/\/(?:embed|shorts|live)\/([^/?]+)/i)?.[1] || '';
+      }
+      if (videoId) return 'https://www.youtube.com/embed/' + encodeURIComponent(videoId);
+    } catch (error) {}
+    const youtube = value.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([^?&/]+)/i);
+    if (youtube) return `https://www.youtube.com/embed/${encodeURIComponent(youtube[1])}`;
+    const vimeo = value.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
+    return vimeo ? `https://player.vimeo.com/video/${vimeo[1]}` : value;
+  }
+  async function openManagerReference(references, title = 'Referensi') {
+    const list = (Array.isArray(references) ? references : (String(references || '').trim() ? [{ name: 'YouTube', type: 'link', url: String(references).trim() }] : []))
+      .map((reference) => ({ ...reference, url: reference.url || reference.dataUrl || reference.data || '' }));
+    if (!list.length) return;
+    managerReferencePopupOpen = true;
+    activeManagerReferenceCacheIds = new Set(list.map((reference) => String(reference.id || referenceDriveFileId(reference.url || '') || '')).filter(Boolean));
+    currentManagerReferenceFileSize = null;
+    currentManagerReferenceIsStreaming = false;
+    void updateManagerReferenceCacheUsage();
+    void preloadManagerReferenceMedia(list);
+    const requestId = ++managerReferenceOpenRequestId;
+    const referenceDialog = document.getElementById('manager-reference-dialog');
+    const tabs = document.getElementById('manager-reference-tabs');
+    tabs.replaceChildren();
+    list.forEach((reference, index) => {
+      const tab = document.createElement('button');
+      tab.type = 'button';
+      tab.className = 'reference-tab';
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-selected', String(index === 0));
+      tab.textContent = reference.name || `Referensi ${index + 1}`;
+      tab.addEventListener('click', () => {
+        tabs.querySelectorAll('.reference-tab').forEach((button, buttonIndex) => button.setAttribute('aria-selected', String(buttonIndex === index)));
+        playManagerReference(reference, title, requestId);
+      });
+      tabs.append(tab);
+    });
+    document.getElementById('manager-reference-title').textContent = title;
+    referenceDialog.classList.remove('is-minimized');
+    const minimizeButton = document.getElementById('manager-reference-minimize');
+    minimizeButton.setAttribute('aria-pressed', 'false');
+    minimizeButton.setAttribute('aria-label', 'Tampilan ringkas');
+    minimizeButton.title = 'Tampilan ringkas';
+    referenceDialog.style.left = '';
+    referenceDialog.style.top = '';
+    referenceDialog.style.right = '';
+    referenceDialog.style.bottom = '';
+    referenceDialog.style.zIndex = '';
+    referenceDialog.style.transform = '';
+    showManagerReferenceFloating(referenceDialog);
+    await playManagerReference(list[0], title, requestId);
+  }
+
+  async function playManagerReference(reference, title, requestId) {
+    const value = String(reference?.url || '').trim();
+    if (!value && !reference?.id) return;
+    const playbackRequestId = ++managerReferencePlaybackRequestId;
+    const referenceDialog = document.getElementById('manager-reference-dialog');
+    stopManagerReference();
+    if (managerReferenceDriveObjectUrl) URL.revokeObjectURL(managerReferenceDriveObjectUrl);
+    managerReferenceDriveObjectUrl = '';
+    window.clearInterval(managerReferenceSeekPoll);
+    managerReferenceSeekPoll = 0;
+    const mediaHost = document.getElementById('manager-reference-media');
+    mediaHost.replaceChildren();
+    managerReferenceMedia = null;
+    managerReferenceEmbed = false;
+    managerReferenceEmbedPlaying = false;
+    managerReferenceSeekInProgress = false;
+    currentManagerReferenceFileSize = null;
+    currentManagerReferenceIsStreaming = reference?.type !== 'file';
+    void updateManagerReferenceCacheUsage();
+    updateManagerReferenceSeek(0, 0);
+    const loading = document.getElementById('manager-reference-loading');
+    const loadingText = document.getElementById('manager-reference-loading-text');
+    loading.hidden = true;
+    showManagerReferenceFloating(referenceDialog);
+    const referenceFileName = String(reference.fileName || reference.name || '');
+    const referenceFileExtension = referenceFileName.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || '';
+    const referenceFileAudio = String(reference.mimeType || '').toLowerCase().startsWith('audio/') || /^(mp3|wav|m4a|aac|flac|ogg|oga|opus|wma)$/.test(referenceFileExtension);
+    const referenceFileVideo = String(reference.mimeType || '').toLowerCase().startsWith('video/') || /^(mp4|m4v|mov|webm|ogv|avi)$/.test(referenceFileExtension);
+    let type = reference.type === 'file'
+      ? (reference.mediaType === 'audio' || reference.mediaType === 'video' ? reference.mediaType : referenceFileAudio ? 'audio' : referenceFileVideo ? 'video' : 'drive')
+      : (isSupportedYouTubeReference(value) ? 'embed' : referenceMediaType(value));
+    const driveFileId = String(reference.id || referenceDriveFileId(value) || '');
+    let mediaSource = value;
+    if (reference.type === 'file' && driveFileId) {
+      loading.hidden = false;
+      loadingText.textContent = `Mengunduh ${reference.name || 'referensi'}…`;
+      try {
+        const blob = await downloadManagerReferenceFile(reference, driveFileId);
+        if (requestId !== managerReferenceOpenRequestId || playbackRequestId !== managerReferencePlaybackRequestId) return;
+        currentManagerReferenceFileSize = blob.size;
+        void updateManagerReferenceCacheUsage();
+        managerReferenceDriveObjectUrl = URL.createObjectURL(blob);
+        mediaSource = managerReferenceDriveObjectUrl;
+        if (type === 'drive') type = blob.type.startsWith('audio/') ? 'audio' : 'video';
+      } catch (error) {
+        if (requestId === managerReferenceOpenRequestId && playbackRequestId === managerReferencePlaybackRequestId) {
+          managerReferenceTime.textContent = /Aksi tidak dikenali:\s*getReferenceMedia/i.test(error.message || '')
+            ? 'Backend Apps Script belum diperbarui. Deploy code.gs sebagai New version.'
+            : `File Drive gagal dimuat: ${error.message || 'periksa akses file dan coba lagi.'}`;
+          loading.hidden = true;
+        }
+        return;
+      }
+      loading.hidden = true;
+    }
+    if (type === 'drive' && reference.type !== 'file') type = await driveReferenceMediaType(value) || type;
+    if (requestId !== managerReferenceOpenRequestId || playbackRequestId !== managerReferencePlaybackRequestId) return;
+    if (type === 'embed') {
+      const frame = document.createElement('iframe');
+      const embedUrl = referenceEmbedUrl(value);
+      const originParam = /^https?:$/i.test(location.protocol) ? '&origin=' + encodeURIComponent(location.origin) : '';
+      frame.src = embedUrl + (embedUrl.includes('?') ? '&' : '?') + 'autoplay=0&enablejsapi=1&rel=0' + originParam;
+      frame.title = title;
+      frame.allow = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
+      frame.referrerPolicy = 'strict-origin-when-cross-origin';
+      frame.allowFullscreen = true;
+      frame.addEventListener('load', () => {
+        frame.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id: 'manager-reference', channel: 'manager-reference' }), '*');
+        frame.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'addEventListener', args: ['onStateChange'] }), '*');
+        frame.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'addEventListener', args: ['onError'] }), '*');
+        requestManagerReferenceEmbedSeek();
+        window.clearInterval(managerReferenceSeekPoll);
+        managerReferenceSeekPoll = window.setInterval(requestManagerReferenceEmbedSeek, 500);
+      });
+      managerReferenceMedia = frame; managerReferenceEmbed = true; managerReferenceEmbedPlaying = false;
+      mediaHost.append(frame);
+    } else if (type === 'audio' || type === 'video' || type === 'drive') {
+      const initialType = type === 'drive' ? 'video' : type;
+      managerReferenceMedia = document.createElement(initialType === 'audio' ? 'audio' : 'video');
+      managerReferenceMedia.controls = true; managerReferenceMedia.autoplay = false; managerReferenceMedia.preload = 'metadata';
+      if (initialType === 'video') managerReferenceMedia.playsInline = true;
+      if (reference.type === 'file') managerReferenceMedia.addEventListener('error', () => { managerReferenceTime.textContent = `File referensi tidak didukung (kode ${managerReferenceMedia.error?.code || '?'})`; }, { once: true });
+      managerReferenceMedia.src = reference.type === 'file' ? mediaSource : referenceMediaUrl(value);
+      mediaHost.append(managerReferenceMedia);
+      bindManagerReferenceNativeSeek(managerReferenceMedia);
+    } else {
+      const frame = document.createElement('iframe');
+      frame.src = value;
+      frame.title = reference.name || title;
+      frame.allow = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
+      frame.referrerPolicy = 'strict-origin-when-cross-origin';
+      frame.allowFullscreen = true;
+      managerReferenceMedia = frame;
+      managerReferenceEmbed = false;
+      mediaHost.append(frame);
+    }
+    document.getElementById('manager-reference-play').disabled = !managerReferenceMedia;
+    document.getElementById('manager-reference-pause').disabled = !managerReferenceMedia;
+    const nativeControlsEnabled = managerReferenceEmbed || typeof managerReferenceMedia?.play === 'function';
+    document.getElementById('manager-reference-play').disabled = !nativeControlsEnabled;
+    document.getElementById('manager-reference-pause').disabled = !nativeControlsEnabled;
+    document.getElementById('manager-reference-stop').disabled = !nativeControlsEnabled;
+    showManagerReferenceFloating(referenceDialog);
+  }
+  function stopManagerReference() { if (!managerReferenceMedia) return; if (managerReferenceEmbed) managerReferenceMedia.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'stopVideo', args: [] }), '*'); else if (typeof managerReferenceMedia.pause === 'function') { managerReferenceMedia.pause(); if ('currentTime' in managerReferenceMedia) managerReferenceMedia.currentTime = 0; } managerReferenceEmbedPlaying = false; updateManagerReferenceSeek(0, managerReferenceSeekDuration); }
+  function moveManagerReferenceElement(element, parent) {
+    if (element.parentElement === parent) return;
+    if (typeof parent.moveBefore === 'function') parent.moveBefore(element, null);
+    else parent.append(element);
+  }
+  function placeManagerReferenceLayer(element) {
+    const dialogs = [...document.querySelectorAll('dialog[open]')];
+    moveManagerReferenceElement(element, dialogs[dialogs.length - 1] || document.body);
+  }
+  function showManagerReferenceFloating(element) {
+    element.hidden = false;
+    placeManagerReferenceLayer(element);
+  }
+  function hideManagerReferenceFloating(element) {
+    element.hidden = true;
+    moveManagerReferenceElement(element, document.body);
+  }
+  function closeManagerReference() {
+    managerReferenceOpenRequestId++;
+    managerReferencePlaybackRequestId++;
+    managerReferencePopupOpen = false;
+    activeManagerReferenceCacheIds = new Set();
+    stopManagerReference();
+    if (managerReferenceDriveObjectUrl) URL.revokeObjectURL(managerReferenceDriveObjectUrl);
+    managerReferenceDriveObjectUrl = '';
+    window.clearInterval(managerReferenceSeekPoll);
+    managerReferenceSeekPoll = 0;
+    const referenceDialog = document.getElementById('manager-reference-dialog');
+    referenceDialog.classList.remove('is-minimized');
+    hideManagerReferenceFloating(referenceDialog);
   }
 
   function fitManagerPreview() {
@@ -1006,6 +1757,7 @@
     document.getElementById('song-creator').value = song.songCreator || '';
     document.getElementById('date-create').value = song.dateCreate || '';
     document.getElementById('tempo').value = String(song.tempo || '');
+    populateReferences(song.references, song.referenceUrl || '');
     songInput.value = htmlToInput(song.contentHtml);
     instrumentList.replaceChildren();
     pendingImages = song.images && typeof song.images === 'object' ? song.images : {};
@@ -1031,6 +1783,7 @@
     document.getElementById('song-creator').value = song.songCreator || '';
     document.getElementById('date-create').value = song.dateCreate || '';
     document.getElementById('tempo').value = String(song.tempo || '');
+    populateReferences(song.references, song.referenceUrl || '');
     songInput.value = htmlToInput(song.contentHtml);
     instrumentList.replaceChildren();
     pendingImages = {};
@@ -1049,6 +1802,7 @@
     editingTemporarySongId = '';
     pendingImages = {};
     form.reset();
+    referenceList.replaceChildren();
     instrumentList.replaceChildren();
     addInstrument('Partitur', [], false);
     document.getElementById('song-detail-heading').textContent = 'Detail lagu baru';
@@ -1094,12 +1848,14 @@
         loadTemporarySongs();
         return;
       }
-      const fileCount = Object.values(payload.instruments || {}).reduce((sum, files) => sum + files.length, 0);
-      if (fileCount) setStatus('Upload gambar…', 'loading');
+      const imageCount = Object.values(payload.instruments || {}).reduce((sum, files) => sum + files.length, 0);
+      const referenceFileCount = payload.references.filter((reference) => reference.type === 'file' && reference.file).length;
+      const fileCount = imageCount + referenceFileCount;
+      if (fileCount) setStatus('Upload gambar dan referensi…', 'loading');
       const saveResult = await postToAppsScript(payload);
       promoteSongsToTop([saveResult && saveResult.id || editingSongId]);
       resetEditor();
-      setStatus(wasEditing ? `Perubahan lagu tersimpan.${fileCount ? ' Upload gambar selesai.' : ''}` : (fileCount ? 'Lagu tersimpan. Upload gambar selesai.' : 'Lagu tersimpan tanpa gambar partitur.'), 'success');
+      setStatus(wasEditing ? `Perubahan lagu tersimpan.${fileCount ? ' Upload file selesai.' : ''}` : (fileCount ? 'Lagu tersimpan. Upload file selesai.' : 'Lagu tersimpan tanpa gambar atau file partitur.'), 'success');
       songFormDialog.close();
       submitButton.disabled = false;
       pendingNewSongHighlight = {
@@ -1366,6 +2122,125 @@
   document.getElementById('close-manager-preview').addEventListener('click', () => previewDialog.close());
   previewDialog.addEventListener('close', () => document.body.classList.remove('manager-preview-open'));
   previewDialog.addEventListener('click', (event) => { if (event.target === previewDialog) previewDialog.close(); });
+  document.getElementById('manager-reference-button').addEventListener('click', (event) => {
+    let references = [];
+    try { references = JSON.parse(event.currentTarget.dataset.references || '[]'); } catch (error) {}
+    openManagerReference(references, document.getElementById('manager-preview-title').textContent);
+  });
+  document.getElementById('close-manager-reference-preview').addEventListener('click', () => {
+    const player = document.getElementById('manager-reference-preview-player');
+    player.querySelectorAll('audio,video').forEach((media) => media.pause());
+    player.replaceChildren();
+    document.getElementById('manager-reference-file-preview').close();
+  });
+  document.getElementById('manager-reference-file-preview').addEventListener('close', () => {
+    managerFormReferencePreviewRequestId++;
+    document.getElementById('manager-reference-preview-player').replaceChildren();
+    const loading = document.getElementById('manager-reference-preview-loading');
+    if (loading) loading.hidden = true;
+    if (managerFormReferencePreviewObjectUrl) URL.revokeObjectURL(managerFormReferencePreviewObjectUrl);
+    managerFormReferencePreviewObjectUrl = '';
+  });
+  document.getElementById('manager-reference-close').addEventListener('click', closeManagerReference);
+  document.getElementById('clear-manager-reference-cache').addEventListener('click', async () => {
+    const button = document.getElementById('clear-manager-reference-cache');
+    button.disabled = true;
+    try {
+      managerReferenceCacheClearGeneration++;
+      managerReferencePlaybackRequestId++;
+      stopManagerReference();
+      if (managerReferenceDriveObjectUrl) URL.revokeObjectURL(managerReferenceDriveObjectUrl);
+      managerReferenceDriveObjectUrl = '';
+      if (managerReferenceMedia && !managerReferenceEmbed && typeof managerReferenceMedia.pause === 'function') {
+        managerReferenceMedia.pause();
+        managerReferenceMedia.removeAttribute('src');
+        managerReferenceMedia.load?.();
+      }
+      document.getElementById('manager-reference-media').replaceChildren();
+      managerReferenceMedia = null;
+      managerReferenceEmbed = false;
+      currentManagerReferenceFileSize = null;
+      currentManagerReferenceIsStreaming = false;
+      window.clearInterval(managerReferenceSeekPoll);
+      managerReferenceSeekPoll = 0;
+      document.getElementById('manager-reference-play').disabled = true;
+      document.getElementById('manager-reference-pause').disabled = true;
+      document.getElementById('manager-reference-stop').disabled = true;
+      updateManagerReferenceSeek(0, 0);
+      await clearAllManagerReferenceCache();
+      await updateManagerReferenceCacheUsage();
+    } catch (error) {
+      window.alert(`Cache Referensi gagal dibersihkan: ${error.message || 'coba lagi.'}`);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  document.getElementById('manager-reference-stop').addEventListener('click', stopManagerReference);
+  document.getElementById('manager-reference-play').addEventListener('click', () => {
+    if (!managerReferenceMedia) return;
+    if (managerReferenceEmbed) { managerReferenceEmbedPlaying = true; managerReferenceMedia.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*'); }
+    else if (typeof managerReferenceMedia.play === 'function') managerReferenceMedia.play().catch(() => {});
+  });
+  document.getElementById('manager-reference-pause').addEventListener('click', () => {
+    if (!managerReferenceMedia) return;
+    if (managerReferenceEmbed) { managerReferenceEmbedPlaying = false; managerReferenceMedia.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }), '*'); }
+    else if (typeof managerReferenceMedia.pause === 'function') managerReferenceMedia.pause();
+  });
+  document.getElementById('manager-reference-minimize').addEventListener('click', () => {
+    const referenceDialog = document.getElementById('manager-reference-dialog');
+    const isMinimized = !referenceDialog.classList.contains('is-minimized');
+    referenceDialog.classList.toggle('is-minimized', isMinimized);
+    const button = document.getElementById('manager-reference-minimize');
+    button.setAttribute('aria-pressed', String(isMinimized));
+    button.setAttribute('aria-label', isMinimized ? 'Tampilan lengkap' : 'Tampilan ringkas');
+    button.title = isMinimized ? 'Tampilan lengkap' : 'Tampilan ringkas';
+    if (!isMinimized) {
+      referenceDialog.style.left = '';
+      referenceDialog.style.top = '';
+      referenceDialog.style.right = '';
+      referenceDialog.style.bottom = '';
+      referenceDialog.style.transform = '';
+      showManagerReferenceFloating(referenceDialog);
+      return;
+    }
+    showManagerReferenceFloating(referenceDialog);
+  });
+  const managerReferenceHeader = document.querySelector('#manager-reference-dialog .reference-header');
+  let managerReferenceDrag = null;
+  managerReferenceHeader.addEventListener('pointerdown', (event) => {
+    const referenceDialog = document.getElementById('manager-reference-dialog');
+    if (referenceDialog.hidden || !referenceDialog.classList.contains('is-minimized') || event.target.closest('button, input')) return;
+    const rect = referenceDialog.getBoundingClientRect();
+    referenceDialog.style.left = rect.left + 'px';
+    referenceDialog.style.top = rect.top + 'px';
+    referenceDialog.style.right = 'auto';
+    referenceDialog.style.bottom = 'auto';
+    referenceDialog.style.transform = 'none';
+    managerReferenceDrag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+    managerReferenceHeader.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  managerReferenceHeader.addEventListener('pointermove', (event) => {
+    if (!managerReferenceDrag || event.pointerId !== managerReferenceDrag.id) return;
+    const referenceDialog = document.getElementById('manager-reference-dialog');
+    const maxLeft = Math.max(0, window.innerWidth - referenceDialog.offsetWidth);
+    const maxTop = Math.max(0, window.innerHeight - referenceDialog.offsetHeight);
+    referenceDialog.style.left = Math.max(0, Math.min(maxLeft, managerReferenceDrag.left + event.clientX - managerReferenceDrag.x)) + 'px';
+    referenceDialog.style.top = Math.max(0, Math.min(maxTop, managerReferenceDrag.top + event.clientY - managerReferenceDrag.y)) + 'px';
+  });
+  managerReferenceHeader.addEventListener('pointerup', (event) => {
+    if (managerReferenceDrag && event.pointerId === managerReferenceDrag.id) {
+      managerReferenceHeader.releasePointerCapture(event.pointerId);
+      managerReferenceDrag = null;
+    }
+  });
+  managerReferenceHeader.addEventListener('pointercancel', () => { managerReferenceDrag = null; });
+  const managerReferenceTopLayerObserver = new MutationObserver((mutations) => {
+    if (!mutations.some((mutation) => mutation.target instanceof HTMLDialogElement)) return;
+    const referenceDialog = document.getElementById('manager-reference-dialog');
+    if (!referenceDialog.hidden) placeManagerReferenceLayer(referenceDialog);
+  });
+  managerReferenceTopLayerObserver.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
   previewInstruments.addEventListener('click', (event) => {
     const button = event.target.closest('.manager-preview-instrument-button');
     if (button) togglePreviewInstrument(button.dataset.instrument);
