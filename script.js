@@ -2,7 +2,7 @@
   'use strict';
 
   // Tempel URL Web App deployment Apps Script di antara tanda petik.
-  const API_URL = 'https://script.google.com/macros/s/AKfycbzIiL9D0EUy4-trC_cAmuD9LsVd4vqz5M3nATwJJSAR7ykl3fWx1fho_ZE-RJWNIKL9jw/exec';
+  const API_URL = 'https://script.google.com/macros/s/AKfycbxYErAtW6biQjLZBcp08NPl3CVV67hSHkWlHiMhpsbabTUKNOdeqx1zJpJRuwULKVfRuQ/exec';
   const MANAGER_CACHE_KEY = 'song-manager:saved-songs:v3';
   const MANAGER_DELETED_IDS_KEY = 'song-manager:deleted-song-ids:v1';
   const MANAGER_RECENT_SONGS_KEY = 'song-manager:recent-songs:v1';
@@ -701,7 +701,21 @@
       }
       const title = document.createElement('p');
       title.className = 'manager-song-title';
-      title.textContent = `${song.category || ''} ${song.number || ''} · ${song.title || ''}`;
+      const referenceCount = managerSongReferenceCount(song);
+      const number = document.createElement('span');
+      number.className = 'manager-song-number';
+      number.textContent = song.number || '';
+      const titleParts = [document.createTextNode(`${song.category || ''} `), number];
+      if (referenceCount) {
+        const badge = document.createElement('span');
+        badge.className = 'manager-song-reference-count';
+        badge.setAttribute('aria-label', `${referenceCount} referensi`);
+        badge.textContent = String(referenceCount);
+        titleParts.push(badge);
+      }
+      titleParts.push(document.createTextNode(` \u00b7 ${song.title || ''}`));
+      title.replaceChildren(...titleParts);
+      if (info instanceof HTMLButtonElement) info.setAttribute('aria-label', `Lihat lirik dan chord ${song.category} ${song.number} ${song.title}${referenceCount ? `, ${referenceCount} referensi` : ''}`);
       const meta = document.createElement('p');
       meta.className = 'manager-song-meta';
       const showUploader = song.uploader && String(song.uploader).trim().toLowerCase() !== 'admin';
@@ -771,6 +785,14 @@
     }
   }
 
+  function managerSongReferenceCount(song) {
+    const references = Array.isArray(song && song.references)
+      ? song.references.filter((reference) => reference && (reference.url || reference.id || reference.dataUrl || reference.data))
+      : [];
+    const legacyUrl = String(song && (song.referenceUrl || song.reference_url) || '').trim();
+    return references.length + (legacyUrl && !references.some((reference) => reference.url === legacyUrl) ? 1 : 0);
+  }
+
   function renderSavedSongs() {
     const query = managerSearch.value.trim().toLocaleLowerCase('id').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     const filteredSongs = savedSongs.filter((song) => {
@@ -801,7 +823,21 @@
       info.setAttribute('aria-label', `Lihat lirik dan chord ${song.category} ${song.number} ${song.title}`);
       const title = document.createElement('p');
       title.className = 'manager-song-title';
-      title.textContent = `${song.category || ''} ${song.number || ''} · ${song.title || ''}`;
+      const referenceCount = managerSongReferenceCount(song);
+      const number = document.createElement('span');
+      number.className = 'manager-song-number';
+      number.textContent = song.number || '';
+      const titleParts = [document.createTextNode(`${song.category || ''} `), number];
+      if (referenceCount) {
+        const badge = document.createElement('span');
+        badge.className = 'manager-song-reference-count';
+        badge.setAttribute('aria-label', `${referenceCount} referensi`);
+        badge.textContent = String(referenceCount);
+        titleParts.push(badge);
+      }
+      titleParts.push(document.createTextNode(` \u00b7 ${song.title || ''}`));
+      title.replaceChildren(...titleParts);
+      if (info instanceof HTMLButtonElement) info.setAttribute('aria-label', `Lihat lirik dan chord ${song.category} ${song.number} ${song.title}${referenceCount ? `, ${referenceCount} referensi` : ''}`);
       const meta = document.createElement('p');
       meta.className = 'manager-song-meta';
       const showUploader = song.uploader && String(song.uploader).trim().toLowerCase() !== 'admin';
@@ -916,8 +952,17 @@
   }
 
   function managerChordParts(token) {
-    const number = token.match(/^([b#]?)([1-7])([b#]?)(13|11|9|7|M7|m7|M|m|sus[24]|o|\+|dim|aug)?(?:\/([b#]?[1-7]))?$/);
-    if (number) return { number, letter: null };
+    const number = token.match(/^(-|([b#]?)([1-7])([b#]?))(?:(13|11|9|7|M7|m7|M|m|sus[24]|o|\+|dim|aug))?(?:\/(-|([b#]?)([1-7])([b#]?)))?$/);
+    if (number) return {
+      number: {
+        root: number[1] === '-' ? '-' : `${number[2] || number[4] || ''}${number[3]}`,
+        degree: number[3] ? Number(number[3]) : null,
+        accidental: number[2] || number[4] || '',
+        quality: number[5] || '',
+        bass: number[6] === '-' ? '-' : number[8] ? `${number[7] || number[9] || ''}${number[8]}` : ''
+      },
+      letter: null
+    };
     const letter = token.match(/^([A-G][#b]?)([^/]*)(?:\/([A-G][#b]?))?$/i);
     if (!letter || (letter[2] && !/^(?:(?:maj|min|m|sus|dim|aug|add|omit|o|M|\+)?(?:2|4|5|6|7|9|11|13)?(?:sus[24])?(?:\([#b]?\d+\))?(?:[#b]?\d+)*)$/i.test(letter[2]))) return null;
     return { number: null, letter: { root: letter[1], quality: letter[2], bass: letter[3] || '' } };
@@ -932,16 +977,18 @@
     const scale = minor ? [0, 2, 3, 5, 7, 8, 10] : [0, 2, 4, 5, 7, 9, 11];
     const flatKey = ['F', 'Bb', 'Eb', 'Ab', 'Db', 'Gb'].includes(keyRoot);
     const noteNames = flatKey ? ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'] : ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-    const accidental = match[1] || match[3] || '';
-    const pitch = (keyPitch + scale[Number(match[2]) - 1] + (accidental === '#' ? 1 : accidental === 'b' ? -1 : 0) + 12) % 12;
-    const root = noteNames[pitch];
+    const accidental = match.accidental || '';
+    const pitch = match.degree ? (keyPitch + scale[match.degree - 1] + (accidental === '#' ? 1 : accidental === 'b' ? -1 : 0) + 12) % 12 : null;
+    const root = match.root === '-' ? '-' : noteNames[pitch];
     const aliases = { M: 'maj', m: 'm', o: 'dim', '+': 'aug' };
-    const quality = (match[4] || '').replace(/^(M|m|o|\+)/, (alias) => aliases[alias]);
+    const quality = match.quality.replace(/^(M|m|o|\+)/, (alias) => aliases[alias]);
     let bass = '';
-    if (match[5]) {
-      const bassMatch = match[5].match(/^([b#]?)([1-7])$/);
-      const bassPitch = (keyPitch + scale[Number(bassMatch[2]) - 1] + (bassMatch[1] === '#' ? 1 : bassMatch[1] === 'b' ? -1 : 0) + 12) % 12;
-      bass = `/${noteNames[bassPitch]}`;
+    if (match.bass) {
+      const bassMatch = match.bass.match(/^([b#]?)([1-7])$/);
+      if (bassMatch) {
+        const bassPitch = (keyPitch + scale[Number(bassMatch[2]) - 1] + (bassMatch[1] === '#' ? 1 : bassMatch[1] === 'b' ? -1 : 0) + 12) % 12;
+        bass = `/${noteNames[bassPitch]}`;
+      } else bass = '/-';
     }
     return `${root}${quality}${bass}`;
   }

@@ -146,3 +146,7 @@ body{height:100vh;height:100dvh;overflow:hidden}
 
 .reference-cache-row{display:flex;flex:0 0 100%;order:4;align-items:center;justify-content:flex-end;gap:9px;min-height:30px;color:#64736a;font-size:10px}.reference-cache-usage{white-space:nowrap}.reference-cache-warning{color:#a44c1c;font-weight:700}.reference-cache-warning[hidden]{display:none!important}.reference-cache-clear{width:28px;height:28px;flex:none;padding:4px}.reference-cache-clear svg{width:17px;height:17px}
 .reference-link-field>label{display:grid;gap:8px}.reference-link-preview{align-self:start;border:1px solid #d8e5da;border-radius:7px;background:#f5faf5;padding:5px 9px;color:#285d3b;font-size:10px;font-weight:700;cursor:pointer}.reference-link-preview:hover,.reference-file-preview:hover{border-color:#9abd9f;background:#edf6ed}.reference-link-preview[hidden]{display:none!important}
+
+.manager-song-number{display:inline-block}.manager-song-reference-count{display:inline-grid;min-width:17px;height:17px;place-items:center;vertical-align:top;transform:translateY(-5px);margin-left:2px;border:2px solid #fbfcfa;border-radius:999px;background:#d94b45;padding:0 4px;color:#fff;font:800 9px/1 'DM Sans',sans-serif;box-shadow:0 2px 5px #2222}
+
+#manager-reference-dialog #manager-reference-close{border:2px solid #71368a!important;box-shadow:0 0 0 1px #71368a;font-size:20px;font-weight:900;-webkit-text-stroke:.7px currentColor}
