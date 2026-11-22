@@ -208,7 +208,9 @@
       fileName.textContent = existing.fileName || existing.name || 'File tersimpan';
       previewButton.hidden = false;
     }
-    row.querySelector('.reference-file').addEventListener('change', (event) => {
+    const referenceFileInput = row.querySelector('.reference-file');
+    referenceFileInput.addEventListener('cancel', (event) => event.stopPropagation());
+    referenceFileInput.addEventListener('change', (event) => {
       const file = event.currentTarget.files?.[0];
       const old = JSON.parse(row.dataset.existingReference || 'null');
       if (!file) return;
@@ -342,6 +344,7 @@
     input.className = 'instrument-files';
     input.type = 'file';
     input.accept = 'image/*';
+    input.addEventListener('cancel', (event) => event.stopPropagation());
     input.addEventListener('change', () => {
       const inputs = [...row.querySelectorAll('.instrument-files')];
       if (input.files.length && inputs[inputs.length - 1] === input) appendInstrumentFileInput(row);
@@ -2310,7 +2313,14 @@
   }
   document.getElementById('close-song-form').addEventListener('click', closeSongEditor);
   cancelEditButton.addEventListener('click', closeSongEditor);
-  songFormDialog.addEventListener('cancel', (event) => { event.preventDefault(); closeSongEditor(); });
+  songFormDialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    if (event.target !== songFormDialog) {
+      event.stopPropagation();
+      return;
+    }
+    closeSongEditor();
+  });
   if (!loadCachedSongs()) {
     managerListStatus.textContent = 'Tekan “Perbarui daftar” untuk mengambil lagu dari database.';
     renderSavedSongs();
