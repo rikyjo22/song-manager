@@ -2,7 +2,7 @@
   'use strict';
 
   // Tempel URL Web App deployment Apps Script di antara tanda petik.
-  const API_URL = 'https://script.google.com/macros/s/AKfycbxYErAtW6biQjLZBcp08NPl3CVV67hSHkWlHiMhpsbabTUKNOdeqx1zJpJRuwULKVfRuQ/exec';
+  const API_URL = 'https://script.google.com/macros/s/AKfycbz3aMkgQWSpfnkuMoViwicrNYJ69OQuTbNGcWosrT7j5_shw6BvhoV6KM3RibjjRMc_YQ/exec';
   const MANAGER_CACHE_KEY = 'song-manager:saved-songs:v3';
   const MANAGER_DELETED_IDS_KEY = 'song-manager:deleted-song-ids:v1';
   const MANAGER_RECENT_SONGS_KEY = 'song-manager:recent-songs:v1';
@@ -880,8 +880,15 @@
   }
 
   function sortManagerSongs(songs) {
-    if (activeManagerSort === 'RECENT') return sortRecentlyChangedSongs(songs);
     const collator = new Intl.Collator('id', { numeric: true, sensitivity: 'base' });
+    if (activeManagerSort === 'RECENT') return sortRecentlyChangedSongs(songs);
+    if (activeManagerSort === 'LAST_UPDATE') {
+      const getUpdateTime = (song) => Date.parse(song.updatedAt || song.createdAt || '') || 0;
+      return [...songs].sort((first, second) =>
+        getUpdateTime(second) - getUpdateTime(first)
+        || collator.compare(String(first.title || ''), String(second.title || ''))
+      );
+    }
     const sortByNumber = activeManagerSort === 'NUMBER_ASC' || activeManagerSort === 'NUMBER_DESC';
     const direction = activeManagerSort.endsWith('_DESC') ? -1 : 1;
     return [...songs].sort((first, second) => {
